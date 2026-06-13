@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
+  background-color: #0a0a0f;
+  color: #c8c8d0;
+  min-height: 100vh;
+}
+
+/* 暗色档案主题 */
+.bg-panel {
+  background-color: #111118;
+  border: 1px solid #1e1e2e;
+  border-radius: 8px;
+}
+
+.bg-panel-alt {
+  background-color: #0d0d14;
+  border: 1px solid #1a1a28;
+  border-radius: 8px;
+}
+
+.text-accent {
+  color: #c8a86e;
+}
+
+.text-muted {
+  color: #6a6a7a;
+}
+
+.border-subtle {
+  border-color: #1e1e2e;
+}
+
+.btn-primary {
+  background-color: #1a1a2e;
+  color: #c8a86e;
+  border: 1px solid #2a2a3e;
+  border-radius: 6px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary:hover {
+  background-color: #252540;
+  border-color: #3a3a50;
+}
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background-color: #2e1a1a;
+  color: #c86e6e;
+  border: 1px solid #3e2a2a;
+  border-radius: 6px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-danger:hover {
+  background-color: #402525;
+}
+
+input, textarea, select {
+  background-color: #0a0a12;
+  color: #c8c8d0;
+  border: 1px solid #1e1e2e;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: #3a3a50;
+}
+
+.progress-bar {
+  height: 4px;
+  background-color: #1e1e2e;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background-color: #c8a86e;
+  transition: width 0.3s ease;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a0f;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a3a;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a4a;
+}

@@ -1,0 +1,84 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials.*
+**/private_sources/
+
+# Python
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.vite/
+frontend/.vite/
+
+# Logs and temporary files
+*.log
+logs/
+debug.log*
+*.tmp
+.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local corpus and analysis data
+backend/data/books/longzu/source_txt/
+backend/data/books/longzu/archive/
+backend/data/books/longzu/**/*.txt
+backend/data/books/longzu/**/*.epub
+backend/data/books/longzu/**/*.pdf
+backend/data/books/longzu/**/*.mobi
+backend/data/books/longzu/**/*.azw3
+backend/data/projects/
+backend/data/**/generations/
+backend/data/**/drafts/
+backend/data/**/versions/
+backend/data/**/exports/
+backend/data/**/*.txt
+backend/data/**/*.epub
+backend/data/**/*.pdf
+backend/data/**/*.mobi
+backend/data/**/*.azw3
+backend/data/**/*.md
+backend/data/**/*.json
+
+# Ignore every local data artifact while retaining directory placeholders.
+backend/data/**
+!backend/data/
+!backend/data/**/
+!backend/data/**/.gitkeep
+
+# Generated private writing
+writing_projects/*
+!writing_projects/.gitkeep
+
+# Local development reports
+REPAIR_REPORT.md
+
