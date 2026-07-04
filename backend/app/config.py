@@ -1,51 +1,36 @@
 import os
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
+
 from dotenv import load_dotenv
-from pydantic_settings import BaseSettings
-
-# 显式加载 backend/.env
-_ENV_FILE = Path(__file__).parent.parent / ".env"
-ENV_LOADED = _ENV_FILE.exists() and load_dotenv(_ENV_FILE, override=False)
+from pydantic import BaseModel, Field
 
 
-def _get_api_key() -> str:
-    """按优先级读取 API Key"""
-    for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "DEEPSEEK_API_KEY"):
-        val = os.getenv(var, "")
-        if val:
-            return val
-    return ""
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = BACKEND_DIR.parent
+ENV_FILE = BACKEND_DIR / ".env"
+ENV_LOADED = ENV_FILE.exists() and load_dotenv(ENV_FILE, override=False)
 
-
-def _get_base_url() -> str:
-    """按优先级读取 Base URL"""
-    for var in ("ANTHROPIC_BASE_URL", "DEEPSEEK_BASE_URL"):
-        val = os.getenv(var, "")
-        if val:
-            return val
-    return "https://api.deepseek.com/anthropic"
-
-
-def _get_model() -> str:
-    return os.getenv("ANTHROPIC_MODEL", "").strip() or "deepseek-v4-pro[1m]"
-
-
-def _get_path(name: str, default: Path) -> Path:
-    raw = os.getenv(name, "").strip()
-    return Path(raw).expanduser() if raw else default
-
-
-_DEFAULT_DATA_DIR = Path(__file__).parent.parent / "data"
-_DEFAULT_WRITING_PROJECT_DIR = (
-    Path(__file__).resolve().parents[2] / "writing_projects" / "longzu6"
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8010
+DEFAULT_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+DEFAULT_PROJECT_ID = "longzu6"
+DEFAULT_PROJECT_TITLE = "龙族 VI 续写工程"
+DEFAULT_DATA_DIR = BACKEND_DIR / "data"
+DEFAULT_CORPUS_SOURCE_DIR = DEFAULT_DATA_DIR / "books" / "longzu" / "source_txt"
+DEFAULT_CONTINUATION_PROJECT_DIR = (
+    DEFAULT_DATA_DIR / "projects" / "longzu_continuation"
 )
+DEFAULT_WRITING_PROJECT_DIR = PROJECT_ROOT / "writing_projects" / "longzu6"
 
 
-class Settings(BaseSettings):
-    # ── API 配置 ──
+class Settings(BaseModel):
+    # API settings
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""
     anthropic_model: str = "deepseek-v4-pro[1m]"
+    anthropic_default_haiku_model: str = "deepseek-v4-flash"
     anthropic_max_tokens: int = 8192
     anthropic_thinking_budget: int = 4096
     model_timeout_seconds: float = 60.0
@@ -70,39 +55,206 @@ class Settings(BaseSettings):
     style_chapter_sample_chars: int = 9000
     style_chapter_retries: int = 2
 
-    # ── 数据路径 ──
-    data_dir: Path = _DEFAULT_DATA_DIR
-    raw_dir: Path = _DEFAULT_DATA_DIR / "raw"
-    processed_dir: Path = _DEFAULT_DATA_DIR / "processed"
-    analysis_dir: Path = _DEFAULT_DATA_DIR / "analysis"
-    style_cache_dir: Path = _DEFAULT_DATA_DIR / "style_cache"
+    # Local server settings
+    host: str = DEFAULT_HOST
+    port: int = DEFAULT_PORT
+    frontend_origins: tuple[str, ...] = DEFAULT_FRONTEND_ORIGINS
+
+    # Project metadata
+    project_id: str = DEFAULT_PROJECT_ID
+    project_title: str = DEFAULT_PROJECT_TITLE
+
+    # Data paths
+    data_dir: Path = DEFAULT_DATA_DIR
+    raw_dir: Path = DEFAULT_DATA_DIR / "raw"
+    processed_dir: Path = DEFAULT_DATA_DIR / "processed"
+    analysis_dir: Path = DEFAULT_DATA_DIR / "analysis"
+    style_cache_dir: Path = DEFAULT_DATA_DIR / "style_cache"
     style_cache_novel_id: str = "longzu"
-    continuation_project_dir: Path = _DEFAULT_DATA_DIR / "projects" / "longzu_continuation"
-    writing_project_dir: Path = _DEFAULT_WRITING_PROJECT_DIR
+    corpus_source_dir: Path = DEFAULT_CORPUS_SOURCE_DIR
+    continuation_project_dir: Path = DEFAULT_CONTINUATION_PROJECT_DIR
+    writing_project_dir: Path = DEFAULT_WRITING_PROJECT_DIR
 
     max_chapter_length: int = 20000
+    config_warnings: list[str] = Field(default_factory=list)
 
-    model_config = {"extra": "ignore"}
+
+def _env_value(env: Mapping[str, Any], name: str) -> str:
+    value = env.get(name, "")
+    return str(value).strip().strip('"').strip("'") if value is not None else ""
 
 
-settings = Settings()
-# 覆盖从 .env 直接读取的值（不受 pydantic-settings prefix 限制）
-settings.anthropic_api_key = _get_api_key()
-settings.anthropic_base_url = _get_base_url()
-settings.anthropic_model = _get_model()
+def _get_text(env: Mapping[str, Any], name: str, default: str) -> str:
+    return _env_value(env, name) or default
 
-# Desktop packaging can relocate all mutable data under %APPDATA%\Noval without
-# changing the web development defaults.
-settings.data_dir = _get_path("DATA_DIR", settings.data_dir)
-settings.raw_dir = _get_path("RAW_DIR", settings.data_dir / "raw")
-settings.processed_dir = _get_path("PROCESSED_DIR", settings.data_dir / "processed")
-settings.analysis_dir = _get_path("ANALYSIS_DIR", settings.data_dir / "analysis")
-settings.style_cache_dir = _get_path("STYLE_CACHE_DIR", settings.data_dir / "style_cache")
-settings.continuation_project_dir = _get_path(
-    "CONTINUATION_PROJECT_DIR",
-    settings.data_dir / "projects" / "longzu_continuation",
-)
-settings.writing_project_dir = _get_path(
-    "WRITING_PROJECT_DIR",
-    settings.writing_project_dir,
-)
+
+def _get_api_key(env: Mapping[str, Any]) -> str:
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "DEEPSEEK_API_KEY"):
+        value = _env_value(env, name)
+        if value:
+            return value
+    return ""
+
+
+def _get_base_url(env: Mapping[str, Any]) -> str:
+    for name in ("ANTHROPIC_BASE_URL", "DEEPSEEK_BASE_URL"):
+        value = _env_value(env, name)
+        if value:
+            return value
+    return "https://api.deepseek.com/anthropic"
+
+
+def _resolve_path(raw: str, warnings: list[str], name: str, default: Path) -> Path:
+    if not raw:
+        return default
+    if "\x00" in raw:
+        warnings.append(f"{name} contains an invalid null byte; using default path.")
+        return default
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path.resolve()
+
+
+def _get_path(
+    env: Mapping[str, Any],
+    name: str,
+    default: Path,
+    warnings: list[str],
+) -> Path:
+    return _resolve_path(_env_value(env, name), warnings, name, default)
+
+
+def _get_int(
+    env: Mapping[str, Any],
+    name: str,
+    default: int,
+    warnings: list[str],
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    raw = _env_value(env, name)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        warnings.append(f"{name} must be an integer; using {default}.")
+        return default
+    if not minimum <= value <= maximum:
+        warnings.append(f"{name} must be between {minimum} and {maximum}; using {default}.")
+        return default
+    return value
+
+
+def _get_frontend_origins(
+    env: Mapping[str, Any],
+    name: str,
+    default: tuple[str, ...],
+    warnings: list[str],
+) -> tuple[str, ...]:
+    raw = _env_value(env, name)
+    if not raw:
+        return default
+    origins = tuple(
+        item.rstrip("/")
+        for item in (part.strip() for part in raw.split(","))
+        if item
+    )
+    if not origins:
+        warnings.append(f"{name} is empty after parsing; using default origins.")
+        return default
+    invalid = [
+        item
+        for item in origins
+        if item != "*" and not item.startswith(("http://", "https://"))
+    ]
+    if invalid:
+        warnings.append(
+            f"{name} contains invalid origin values; using default origins."
+        )
+        return default
+    return origins
+
+
+def build_settings(env: Mapping[str, Any] | None = None) -> Settings:
+    env = os.environ if env is None else env
+    warnings: list[str] = []
+    settings = Settings()
+
+    settings.anthropic_api_key = _get_api_key(env)
+    settings.anthropic_base_url = _get_base_url(env)
+    settings.anthropic_model = _get_text(
+        env,
+        "ANTHROPIC_MODEL",
+        settings.anthropic_model,
+    )
+    settings.anthropic_default_haiku_model = _get_text(
+        env,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        settings.anthropic_default_haiku_model,
+    )
+
+    settings.host = _get_text(env, "HOST", DEFAULT_HOST)
+    settings.port = _get_int(
+        env,
+        "PORT",
+        DEFAULT_PORT,
+        warnings,
+        minimum=1,
+        maximum=65535,
+    )
+    settings.frontend_origins = _get_frontend_origins(
+        env,
+        "FRONTEND_ORIGINS",
+        DEFAULT_FRONTEND_ORIGINS,
+        warnings,
+    )
+
+    settings.project_id = _get_text(env, "PROJECT_ID", DEFAULT_PROJECT_ID)
+    settings.project_title = _get_text(env, "PROJECT_TITLE", DEFAULT_PROJECT_TITLE)
+
+    settings.data_dir = _get_path(env, "DATA_DIR", DEFAULT_DATA_DIR, warnings)
+    settings.raw_dir = _get_path(env, "RAW_DIR", settings.data_dir / "raw", warnings)
+    settings.processed_dir = _get_path(
+        env,
+        "PROCESSED_DIR",
+        settings.data_dir / "processed",
+        warnings,
+    )
+    settings.analysis_dir = _get_path(
+        env,
+        "ANALYSIS_DIR",
+        settings.data_dir / "analysis",
+        warnings,
+    )
+    settings.style_cache_dir = _get_path(
+        env,
+        "STYLE_CACHE_DIR",
+        settings.data_dir / "style_cache",
+        warnings,
+    )
+    settings.corpus_source_dir = _get_path(
+        env,
+        "CORPUS_SOURCE_DIR",
+        settings.data_dir / "books" / "longzu" / "source_txt",
+        warnings,
+    )
+    settings.continuation_project_dir = _get_path(
+        env,
+        "CONTINUATION_PROJECT_DIR",
+        settings.data_dir / "projects" / "longzu_continuation",
+        warnings,
+    )
+    settings.writing_project_dir = _get_path(
+        env,
+        "WRITING_PROJECT_DIR",
+        DEFAULT_WRITING_PROJECT_DIR,
+        warnings,
+    )
+    settings.config_warnings = warnings
+    return settings
+
+
+settings = build_settings()

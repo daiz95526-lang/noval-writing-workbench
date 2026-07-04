@@ -146,6 +146,7 @@ npm run build
 ## 文档
 
 - [安装与运行](docs/INSTALLATION.md)
+- [配置说明](docs/CONFIG.md)
 - [用户使用指南](docs/USER_GUIDE.md)
 - [开发指南](docs/DEVELOPMENT.md)
 - [数据与隐私边界](docs/DATA_AND_PRIVACY.md)
