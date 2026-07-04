@@ -1,7 +1,7 @@
 [project]
 name = "noval-backend"
 version = "0.1.0"
-description = "龙族风格蒸馏与续写系统 - 后端"
+description = "Local-first AI writing workbench backend"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
@@ -12,6 +12,7 @@ dependencies = [
     "lxml>=5.3.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
+    "python-dotenv>=1.0.0",
     "jieba>=0.42.1",
     "aiofiles>=24.0.0",
     "python-multipart>=0.0.12",
@@ -21,4 +22,25 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [
+    ".venv",
+    "data",
+]
+
+[tool.ruff.lint]
+select = [
+    "E9",
+    "F63",
+    "F7",
+    "F82",
 ]

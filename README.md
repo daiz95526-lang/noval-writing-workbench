@@ -130,15 +130,26 @@ backend/data/books/longzu/source_txt/
 
 ```powershell
 cd backend
-python -m unittest tests.test_acceptance
+python -m pip install -r requirements-dev.txt
+python -m pytest
+python -m ruff check .
 ```
 
 前端：
 
 ```powershell
 cd frontend
+npm run lint
 npm run build
 ```
+
+## 文档
+
+- [安装与运行](docs/INSTALLATION.md)
+- [用户使用指南](docs/USER_GUIDE.md)
+- [开发指南](docs/DEVELOPMENT.md)
+- [数据与隐私边界](docs/DATA_AND_PRIVACY.md)
+- [验证报告模板](docs/VERIFICATION.md)
 
 ## GitHub 上传前检查
 

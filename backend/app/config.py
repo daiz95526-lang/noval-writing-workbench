@@ -30,6 +30,17 @@ def _get_model() -> str:
     return os.getenv("ANTHROPIC_MODEL", "").strip() or "deepseek-v4-pro[1m]"
 
 
+def _get_path(name: str, default: Path) -> Path:
+    raw = os.getenv(name, "").strip()
+    return Path(raw).expanduser() if raw else default
+
+
+_DEFAULT_DATA_DIR = Path(__file__).parent.parent / "data"
+_DEFAULT_WRITING_PROJECT_DIR = (
+    Path(__file__).resolve().parents[2] / "writing_projects" / "longzu6"
+)
+
+
 class Settings(BaseSettings):
     # ── API 配置 ──
     anthropic_api_key: str = ""
@@ -60,16 +71,14 @@ class Settings(BaseSettings):
     style_chapter_retries: int = 2
 
     # ── 数据路径 ──
-    data_dir: Path = Path(__file__).parent.parent / "data"
-    raw_dir: Path = data_dir / "raw"
-    processed_dir: Path = data_dir / "processed"
-    analysis_dir: Path = data_dir / "analysis"
-    style_cache_dir: Path = data_dir / "style_cache"
+    data_dir: Path = _DEFAULT_DATA_DIR
+    raw_dir: Path = _DEFAULT_DATA_DIR / "raw"
+    processed_dir: Path = _DEFAULT_DATA_DIR / "processed"
+    analysis_dir: Path = _DEFAULT_DATA_DIR / "analysis"
+    style_cache_dir: Path = _DEFAULT_DATA_DIR / "style_cache"
     style_cache_novel_id: str = "longzu"
-    continuation_project_dir: Path = data_dir / "projects" / "longzu_continuation"
-    writing_project_dir: Path = (
-        Path(__file__).resolve().parents[2] / "writing_projects" / "longzu6"
-    )
+    continuation_project_dir: Path = _DEFAULT_DATA_DIR / "projects" / "longzu_continuation"
+    writing_project_dir: Path = _DEFAULT_WRITING_PROJECT_DIR
 
     max_chapter_length: int = 20000
 
@@ -81,3 +90,19 @@ settings = Settings()
 settings.anthropic_api_key = _get_api_key()
 settings.anthropic_base_url = _get_base_url()
 settings.anthropic_model = _get_model()
+
+# Desktop packaging can relocate all mutable data under %APPDATA%\Noval without
+# changing the web development defaults.
+settings.data_dir = _get_path("DATA_DIR", settings.data_dir)
+settings.raw_dir = _get_path("RAW_DIR", settings.data_dir / "raw")
+settings.processed_dir = _get_path("PROCESSED_DIR", settings.data_dir / "processed")
+settings.analysis_dir = _get_path("ANALYSIS_DIR", settings.data_dir / "analysis")
+settings.style_cache_dir = _get_path("STYLE_CACHE_DIR", settings.data_dir / "style_cache")
+settings.continuation_project_dir = _get_path(
+    "CONTINUATION_PROJECT_DIR",
+    settings.data_dir / "projects" / "longzu_continuation",
+)
+settings.writing_project_dir = _get_path(
+    "WRITING_PROJECT_DIR",
+    settings.writing_project_dir,
+)
