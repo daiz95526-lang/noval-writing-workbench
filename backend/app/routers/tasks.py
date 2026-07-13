@@ -17,12 +17,13 @@ from app.models.schemas import (
     TaskType,
 )
 from app.services.task_manager import TaskCancelled, task_manager
+from app.services.project_context import get_current_project_id, run_in_project
 
 router = APIRouter()
 
 
 def _task_or_404(task_id: str) -> LongTask:
-    task = task_manager.get(task_id)
+    task = task_manager.get(task_id, project_id=get_current_project_id())
     if task is None:
         raise HTTPException(404, "任务不存在")
     return task
@@ -44,7 +45,7 @@ def _progress(task_id: str):
 
 @router.get("")
 async def list_tasks(limit: int = Query(50, ge=1, le=200)) -> list[LongTask]:
-    return task_manager.list(limit)
+    return task_manager.list(limit, project_id=get_current_project_id())
 
 
 @router.get("/{task_id}")
@@ -55,7 +56,7 @@ async def get_task(task_id: str) -> LongTask:
 @router.post("/{task_id}/cancel")
 async def cancel_task(task_id: str) -> LongTask:
     _task_or_404(task_id)
-    return task_manager.cancel(task_id)
+    return task_manager.cancel(task_id, project_id=get_current_project_id())
 
 
 @router.post("/style-analysis/start")
@@ -74,8 +75,16 @@ async def start_style_analysis(
             "chapter_id": request.chapter_id,
             "chapter_title": chapter.title,
         },
+        target_id=request.chapter_id,
+        user_visible_title=f"分析《{chapter.title}》的写作风格",
     )
-    background_tasks.add_task(_run_style_analysis, task.task_id, request.chapter_id)
+    background_tasks.add_task(
+        run_in_project,
+        task.project_id,
+        _run_style_analysis,
+        task.task_id,
+        request.chapter_id,
+    )
     return task
 
 
@@ -99,8 +108,12 @@ async def start_knowledge_build(
             "selected_chapter_id": request.selected_chapter_id,
             "summary_only": request.summary_only,
         },
+        target_id=request.selected_chapter_id or "corpus",
+        user_visible_title="构建项目知识库",
     )
     background_tasks.add_task(
+        run_in_project,
+        task.project_id,
         _run_knowledge_build,
         task.task_id,
         request.selected_chapter_id,
@@ -168,10 +181,18 @@ async def start_generation(
             "total_segments": total_segments,
             "pov_character": request.pov_character,
         },
+        target_id=request.plan_id or request.start_chapter_id,
+        user_visible_title="生成完整章节",
     )
     task.total_segments = total_segments
     task.draft_id = request.draft_id
-    background_tasks.add_task(_run_generation, task.task_id, request)
+    background_tasks.add_task(
+        run_in_project,
+        task.project_id,
+        _run_generation,
+        task.task_id,
+        request,
+    )
     return task
 
 
@@ -193,8 +214,16 @@ async def start_revision(
             "target_section": request.target_section,
             "revision_mode": request.revision_mode,
         },
+        target_id=request.generation_id,
+        user_visible_title="修改章节候选稿",
     )
-    background_tasks.add_task(_run_revision, task.task_id, request)
+    background_tasks.add_task(
+        run_in_project,
+        task.project_id,
+        _run_revision,
+        task.task_id,
+        request,
+    )
     return task
 
 
@@ -288,7 +317,7 @@ async def _run_knowledge_build(
             or kb.themes
         ):
             raise ValueError("知识库构建结果为空")
-        generation._knowledge_base = kb
+        generation.set_current_knowledge_base(kb)
         kb_result = {
             "knowledge_base": kb.model_dump(mode="json"),
             "summary_failed": diagnostics.get("summary_failed", False),
@@ -413,7 +442,7 @@ async def _run_generation(task_id: str, request: GenerationRequest) -> None:
 
         content, system_prompt = await generate_chapter(
             chapter=chapter,
-            kb=generation._knowledge_base,
+            kb=generation.get_current_knowledge_base(),
             request=request,
             progress_callback=report,
             segment_callback=save_partial,
@@ -712,7 +741,7 @@ async def _run_revision(task_id: str, request: IterateRequest) -> None:
             previous_result=previous,
             feedback=request.feedback,
             target_section=request.target_section,
-            kb=generation._knowledge_base,
+            kb=generation.get_current_knowledge_base(),
             current_text=original_content,
             revision_mode=request.revision_mode,
             progress_callback=report,

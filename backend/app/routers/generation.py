@@ -8,40 +8,61 @@ from app.models.schemas import (
     IterateRequest,
     KnowledgeBase,
 )
+from app.services.project_context import ProjectScopedDict, get_current_project_id
 
 router = APIRouter()
 
-_generation_results: dict[str, GenerationResult] = {}
+_generation_results: ProjectScopedDict[GenerationResult] = ProjectScopedDict({})
+_knowledge_bases: ProjectScopedDict[KnowledgeBase] = ProjectScopedDict({})
 _knowledge_base = KnowledgeBase()
 
 
+def get_current_knowledge_base() -> KnowledgeBase:
+    if get_current_project_id() == settings.project_id:
+        return _knowledge_base
+    knowledge_base = _knowledge_bases.current().get("current")
+    if knowledge_base is None:
+        knowledge_base = KnowledgeBase()
+        _knowledge_bases["current"] = knowledge_base
+    return knowledge_base
+
+
+def set_current_knowledge_base(value: KnowledgeBase) -> None:
+    global _knowledge_base
+    if get_current_project_id() == settings.project_id:
+        _knowledge_base = value
+        return
+    _knowledge_bases["current"] = value
+
+
 def _knowledge_base_ready() -> bool:
+    knowledge_base = get_current_knowledge_base()
     return bool(
-        _knowledge_base.characters
-        or _knowledge_base.world_settings
-        or _knowledge_base.plot_nodes
-        or _knowledge_base.themes
+        knowledge_base.characters
+        or knowledge_base.world_settings
+        or knowledge_base.plot_nodes
+        or knowledge_base.themes
     )
 
 
 @router.get("/knowledge-base")
 async def get_knowledge_base() -> KnowledgeBase:
-    return _knowledge_base
+    return get_current_knowledge_base()
 
 
 @router.post("/knowledge-base/build")
 async def build_knowledge_base() -> KnowledgeBase:
-    global _knowledge_base
     from app.services.knowledge_base import build_kb
     from app.routers.corpus import _corpus_store
 
     chapters = list(_corpus_store.values())
     if not chapters:
         raise HTTPException(400, "语料库为空，请先扫描本地语料")
-    _knowledge_base = await build_kb(chapters)
+    knowledge_base = await build_kb(chapters)
+    set_current_knowledge_base(knowledge_base)
     if not _knowledge_base_ready():
         raise HTTPException(500, "知识库构建结果为空")
-    return _knowledge_base
+    return knowledge_base
 
 
 @router.post("/generate")
@@ -97,7 +118,7 @@ async def generate(request: GenerationRequest) -> GenerationResult:
     try:
         content, system_prompt = await generate_chapter(
             chapter=chapter,
-            kb=_knowledge_base,
+            kb=get_current_knowledge_base(),
             request=request,
             draft_content=draft_content,
             previous_draft_content=previous_draft_content,
@@ -161,11 +182,12 @@ async def generate_stream(request: GenerationRequest):
         raise HTTPException(400, "知识库尚未构建，请先构建知识库")
 
     chapter = _corpus_store[request.start_chapter_id]
+    knowledge_base = get_current_knowledge_base()
 
     async def event_stream():
         async for chunk in generate_chapter_stream(
             chapter=chapter,
-            kb=_knowledge_base,
+            kb=knowledge_base,
             request=request,
         ):
             yield f"data: {chunk}\n\n"
@@ -221,7 +243,7 @@ async def iterate(request: IterateRequest) -> GenerationResult:
             previous_result=prev,
             feedback=request.feedback,
             target_section=request.target_section,
-            kb=_knowledge_base,
+            kb=get_current_knowledge_base(),
             current_text=original_content,
             revision_mode=request.revision_mode,
             ending_callback=save_ending,

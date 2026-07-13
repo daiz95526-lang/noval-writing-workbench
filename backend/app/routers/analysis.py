@@ -1,6 +1,5 @@
 import uuid
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from app.config import settings
 from app.models.schemas import (
     AnalysisDimension,
     AnalysisStatus,
@@ -8,11 +7,16 @@ from app.models.schemas import (
     StyleProfile,
     TaskStatus,
 )
+from app.services.project_context import (
+    ProjectScopedDict,
+    get_current_project_id,
+    run_in_project,
+)
 
 router = APIRouter()
 
-_style_profiles: dict[str, StyleProfile] = {}
-_tasks: dict[str, TaskStatus] = {}
+_style_profiles: ProjectScopedDict[StyleProfile] = ProjectScopedDict({})
+_tasks: ProjectScopedDict[TaskStatus] = ProjectScopedDict({})
 
 
 @router.get("/profiles")
@@ -35,7 +39,13 @@ async def start_analysis(chapter_id: str, background_tasks: BackgroundTasks) -> 
         raise HTTPException(404, "章节不存在")
     task_id = str(uuid.uuid4())[:8]
     _tasks[task_id] = TaskStatus(task_id=task_id, status=AnalysisStatus.PENDING)
-    background_tasks.add_task(_run_analysis, task_id, chapter_id)
+    background_tasks.add_task(
+        run_in_project,
+        get_current_project_id(),
+        _run_analysis,
+        task_id,
+        chapter_id,
+    )
     return _tasks[task_id]
 
 

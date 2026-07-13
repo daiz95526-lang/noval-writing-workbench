@@ -8,6 +8,7 @@ from threading import RLock
 from typing import Any
 
 from app.config import settings
+from app.services.file_ops import atomic_write_json, atomic_write_text
 from app.models.schemas import (
     ContinuityCheckResult,
     ContinuityIssue,
@@ -29,7 +30,15 @@ def _word_count(text: str) -> int:
 
 
 class DraftStore:
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        project_id: str = "longzu_continuation",
+        title: str = "本地续写草稿",
+    ) -> None:
+        self.project_id = project_id
+        self.project_title = title
         self.root = Path(root or settings.continuation_project_dir)
         self.manifest_path = self.root / "manifest.json"
         self.drafts_dir = self.root / "drafts"
@@ -63,8 +72,8 @@ class DraftStore:
             self._write_json(
                 self.manifest_path,
                 {
-                    "project_id": "longzu_continuation",
-                    "title": "龙族续写草稿",
+                    "project_id": self.project_id,
+                    "title": self.project_title,
                     "created_at": now,
                     "updated_at": now,
                     "chapters": [],
@@ -87,20 +96,11 @@ class DraftStore:
 
     @staticmethod
     def _write_json(path: Path, value: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(path.suffix + ".tmp")
-        temp.write_text(
-            json.dumps(value, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temp.replace(path)
+        atomic_write_json(path, value)
 
     @staticmethod
     def _write_text(path: Path, value: str) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(path.suffix + ".tmp")
-        temp.write_text(value, encoding="utf-8")
-        temp.replace(path)
+        atomic_write_text(path, value)
 
     @staticmethod
     def _validate_id(value: str) -> str:
@@ -444,4 +444,17 @@ def _keywords(text: str) -> list[str]:
     return [value for value in values if 2 <= len(value) <= 12][:12]
 
 
-draft_store = DraftStore()
+from app.services.project_context import ProjectScopedStore
+from app.services.project_store import project_store
+
+
+def _project_draft_store(project_id: str) -> DraftStore:
+    project = project_store.get(project_id)
+    return DraftStore(
+        project_store.layout(project_id).draft_store,
+        project_id=project_id,
+        title=project.title,
+    )
+
+
+draft_store = ProjectScopedStore(DraftStore(), _project_draft_store)

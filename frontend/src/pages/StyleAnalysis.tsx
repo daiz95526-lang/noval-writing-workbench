@@ -3,6 +3,7 @@ import {
   listChapters, listProfiles, getProfile,
   startStyleAnalysisTask, getLongTask, cancelLongTask,
   isApiNotFoundError,
+  getProjectStorageKey,
   type ChapterMeta, type StyleProfile, type LongTask, type DimensionResult,
 } from '../api';
 import TaskStatusPanel from '../components/TaskStatusPanel';
@@ -15,14 +16,14 @@ interface StoredAnalysisState {
   lastAnalysisResult: StyleProfile | null;
 }
 
-function loadStoredState(): StoredAnalysisState {
+function loadStoredState(storageKey: string): StoredAnalysisState {
   const fallback: StoredAnalysisState = {
     selectedChapterId: '',
     currentAnalysisTaskId: '',
     lastAnalysisResult: null,
   };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (raw) {
       return {
         ...fallback,
@@ -36,7 +37,8 @@ function loadStoredState(): StoredAnalysisState {
 }
 
 export default function StyleAnalysis() {
-  const [stored] = useState(loadStoredState);
+  const [storageKey] = useState(() => getProjectStorageKey(STORAGE_KEY));
+  const [stored] = useState(() => loadStoredState(storageKey));
   const [chapters, setChapters] = useState<ChapterMeta[]>([]);
   const [profiles, setProfiles] = useState<StyleProfile[]>([]);
   const [selectedChapterId, setSelectedChapterId] = useState(stored.selectedChapterId);
@@ -67,12 +69,12 @@ export default function StyleAnalysis() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(storageKey, JSON.stringify({
       selectedChapterId,
       currentAnalysisTaskId: currentTaskId,
       lastAnalysisResult: selectedProfile,
     }));
-  }, [selectedChapterId, currentTaskId, selectedProfile]);
+  }, [storageKey, selectedChapterId, currentTaskId, selectedProfile]);
 
   useEffect(() => {
     if (!currentTaskId) return;

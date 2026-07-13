@@ -1,4 +1,4 @@
-"""Import the canonical local corpus from books/longzu/source_txt."""
+"""Import the active project's local corpus."""
 
 from __future__ import annotations
 
@@ -12,12 +12,28 @@ from app.models.schemas import (
     ImportDetail,
     ImportReport,
 )
+from app.services.file_ops import atomic_write_json, atomic_write_text
 from app.services.preprocessor import TextPreprocessor
+from app.services.project_paths import RuntimeProjectPaths, get_project_paths
 
 _BOOK_DIR = settings.data_dir / "books" / "longzu"
 _SOURCE_DIR = _BOOK_DIR / "source_txt"
 _META_INDEX_PATH = settings.data_dir / "chapters_meta.json"
 _IMPORT_REPORT_PATH = _BOOK_DIR / "import_report.json"
+
+
+def _runtime_paths() -> RuntimeProjectPaths:
+    paths = get_project_paths()
+    if not paths.legacy:
+        return paths
+    return RuntimeProjectPaths(
+        **{
+            **paths.__dict__,
+            "source": _SOURCE_DIR,
+            "index": _META_INDEX_PATH,
+            "reports": _IMPORT_REPORT_PATH.parent,
+        }
+    )
 
 
 def read_text_with_encoding(file_path: Path) -> tuple[str, str]:
@@ -48,11 +64,12 @@ class LocalImporter:
     def last_report(self) -> ImportReport | None:
         if self._report is not None:
             return self._report
-        if not _IMPORT_REPORT_PATH.exists():
+        report_path = _runtime_paths().reports / "import_report.json"
+        if not report_path.exists():
             return None
         try:
             self._report = ImportReport.model_validate_json(
-                _IMPORT_REPORT_PATH.read_text(encoding="utf-8")
+                report_path.read_text(encoding="utf-8")
             )
         except (OSError, ValueError):
             return None
@@ -61,7 +78,8 @@ class LocalImporter:
     def scan_and_import(self) -> ImportReport:
         from app.routers.corpus import _corpus_store
 
-        files = sorted(_SOURCE_DIR.glob("*.txt")) if _SOURCE_DIR.exists() else []
+        paths = _runtime_paths()
+        files = sorted(paths.source.glob("*.txt")) if paths.source.exists() else []
         report = ImportReport(scanned_files=len(files))
         candidate_store: dict[str, Chapter] = {}
         seen_hashes: set[str] = set()
@@ -103,7 +121,7 @@ class LocalImporter:
             report.failed_files = 1
             report.details.append(
                 ImportDetail(
-                    file=str(_SOURCE_DIR),
+                    file=str(paths.source),
                     status="error",
                     error_message="主语料目录不存在或没有 txt 文件",
                 )
@@ -114,16 +132,16 @@ class LocalImporter:
             self._persist_report(report)
             return report
 
-        settings.processed_dir.mkdir(parents=True, exist_ok=True)
-        for path in settings.processed_dir.glob("*.txt"):
+        paths.processed.mkdir(parents=True, exist_ok=True)
+        for path in paths.processed.glob("*.txt"):
             path.unlink()
 
         _corpus_store.clear()
         for chapter in sorted(candidate_store.values(), key=chapter_sort_key):
             _corpus_store[chapter.chapter_id] = chapter
-            (settings.processed_dir / f"{chapter.chapter_id}.txt").write_text(
+            atomic_write_text(
+                paths.processed / f"{chapter.chapter_id}.txt",
                 chapter.content,
-                encoding="utf-8",
             )
 
         _save_meta_index(_corpus_store)
@@ -133,17 +151,18 @@ class LocalImporter:
         from app.services.chapter_audit import generate_chapter_audit
 
         generate_chapter_audit(
-            source_dir=_SOURCE_DIR,
+            source_dir=paths.source,
             imported_chapters=list(_corpus_store.values()),
+            output_dir=paths.reports,
         )
         return report
 
     def _persist_report(self, report: ImportReport) -> None:
         self._report = report
-        _IMPORT_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _IMPORT_REPORT_PATH.write_text(
+        report_path = _runtime_paths().reports / "import_report.json"
+        atomic_write_text(
+            report_path,
             report.model_dump_json(indent=2),
-            encoding="utf-8",
         )
 
 
@@ -152,11 +171,7 @@ def _save_meta_index(corpus_store: dict[str, Chapter]) -> None:
         chapter_id: ChapterMeta.model_validate(chapter).model_dump(mode="json")
         for chapter_id, chapter in corpus_store.items()
     }
-    _META_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _META_INDEX_PATH.write_text(
-        json.dumps(index, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    atomic_write_json(_runtime_paths().index, index)
 
 
 def save_meta_index(corpus_store: dict[str, Chapter]) -> None:
@@ -164,10 +179,11 @@ def save_meta_index(corpus_store: dict[str, Chapter]) -> None:
 
 
 def load_meta_index() -> dict[str, ChapterMeta]:
-    if not _META_INDEX_PATH.exists():
+    index_path = _runtime_paths().index
+    if not index_path.exists():
         return {}
     try:
-        data = json.loads(_META_INDEX_PATH.read_text(encoding="utf-8"))
+        data = json.loads(index_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
 

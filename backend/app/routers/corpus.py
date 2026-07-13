@@ -2,27 +2,31 @@ import hashlib
 import re
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from app.config import settings
 from app.models.schemas import Chapter, CorpusStats, CorpusStatus, ChapterMeta, ImportReport
+from app.services.file_ops import atomic_write_text
+from app.services.project_context import ProjectScopedDict, get_current_project_id
+from app.services.project_paths import get_project_paths
 
 router = APIRouter()
 
-_corpus_store: dict[str, Chapter] = {}
+_corpus_store: ProjectScopedDict[Chapter] = ProjectScopedDict({})
+_loaded_projects: set[str] = set()
 
 
 def _chapter_path(chapter_id: str) -> Path:
-    return settings.processed_dir / f"{chapter_id}.txt"
+    return get_project_paths().processed / f"{chapter_id}.txt"
 
 
 def _scan_processed():
     """从 processed/ 目录和元数据索引恢复章节数据"""
     from app.services.local_importer import load_meta_index
 
-    settings.processed_dir.mkdir(parents=True, exist_ok=True)
+    paths = get_project_paths()
+    paths.processed.mkdir(parents=True, exist_ok=True)
 
     meta_index = load_meta_index()
 
-    for f in sorted(settings.processed_dir.glob("*.txt")):
+    for f in sorted(paths.processed.glob("*.txt")):
         cid = f.stem
         if cid in _corpus_store:
             continue
@@ -54,6 +58,12 @@ def _scan_processed():
             content=content,
             status=CorpusStatus.PROCESSED,
         )
+    _loaded_projects.add(get_current_project_id())
+
+
+def _ensure_loaded() -> None:
+    if get_current_project_id() not in _loaded_projects:
+        _scan_processed()
 
 
 _scan_processed()
@@ -61,6 +71,7 @@ _scan_processed()
 
 @router.get("/stats")
 async def get_stats() -> CorpusStats:
+    _ensure_loaded()
     stats = CorpusStats()
     for ch in _corpus_store.values():
         stats.total_chapters += 1
@@ -75,6 +86,7 @@ async def get_stats() -> CorpusStats:
 
 @router.get("/chapters")
 async def list_chapters(volume: str = "") -> list[ChapterMeta]:
+    _ensure_loaded()
     chapters = []
     for ch in sorted(
         _corpus_store.values(),
@@ -88,6 +100,7 @@ async def list_chapters(volume: str = "") -> list[ChapterMeta]:
 
 @router.get("/chapters/{chapter_id}")
 async def get_chapter(chapter_id: str) -> Chapter:
+    _ensure_loaded()
     if chapter_id not in _corpus_store:
         raise HTTPException(404, "章节不存在")
     return _corpus_store[chapter_id]
@@ -95,6 +108,7 @@ async def get_chapter(chapter_id: str) -> Chapter:
 
 @router.post("/chapters/upload")
 async def upload_chapter(file: UploadFile = File(...)):
+    _ensure_loaded()
     raw = await file.read()
     content = ""
     for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
@@ -129,8 +143,7 @@ async def upload_chapter(file: UploadFile = File(...)):
         status=CorpusStatus.PROCESSED,
     )
     _corpus_store[cid] = chapter
-    settings.processed_dir.mkdir(parents=True, exist_ok=True)
-    _chapter_path(cid).write_text(content, encoding="utf-8")
+    atomic_write_text(_chapter_path(cid), content)
     from app.services.local_importer import save_meta_index
     save_meta_index(_corpus_store)
     return {"chapter_id": cid, "word_count": chapter.word_count}
@@ -138,6 +151,7 @@ async def upload_chapter(file: UploadFile = File(...)):
 
 @router.delete("/chapters/{chapter_id}")
 async def delete_chapter(chapter_id: str):
+    _ensure_loaded()
     if chapter_id not in _corpus_store:
         raise HTTPException(404, "章节不存在")
     del _corpus_store[chapter_id]
@@ -151,7 +165,7 @@ async def delete_chapter(chapter_id: str):
 
 @router.post("/scan-local")
 async def scan_local() -> ImportReport:
-    """扫描唯一主语料目录 books/longzu/source_txt。"""
+    """扫描当前项目配置的只读语料目录。"""
     from app.services.local_importer import scan_and_import
     report = scan_and_import()
     if report.failed_files:

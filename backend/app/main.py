@@ -1,22 +1,50 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from app.routers import corpus, analysis, drafts, generation, planning, tasks, writing
+from app.config import settings
+from app.routers import analysis, corpus, drafts, generation, planning, projects, tasks, writing
+from app.services.project_context import use_project
+from app.services.project_store import project_store
 
 app = FastAPI(
-    title="Noval - 龙族风格蒸馏与续写系统",
-    description="对《龙族》系列进行风格蒸馏，提取文风/文笔/内核，并基于此进行风格一致的续写",
+    title="NOVAL - 本地优先的 AI 长篇写作工作台",
+    description="本地小说语料分析、规划、续写、章节管理与导出工作台",
     version="0.1.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=list(settings.frontend_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def project_context_middleware(request, call_next):
+    requested_project_id = (
+        request.headers.get("X-Project-ID", "").strip()
+        or request.query_params.get("project_id", "").strip()
+    )
+    project_id = requested_project_id or settings.project_id
+    if requested_project_id:
+        try:
+            project_store.get(project_id)
+        except KeyError:
+            return JSONResponse(status_code=404, content={"detail": "项目不存在"})
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={"detail": str(exc)})
+        except RuntimeError as exc:
+            return JSONResponse(status_code=409, content={"detail": str(exc)})
+    with use_project(project_id):
+        response = await call_next(request)
+    response.headers["X-NOVAL-Project-ID"] = project_id
+    return response
+
+
+app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(corpus.router, prefix="/api/corpus", tags=["corpus"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(generation.router, prefix="/api/generation", tags=["generation"])

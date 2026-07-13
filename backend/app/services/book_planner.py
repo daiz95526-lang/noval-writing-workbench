@@ -17,6 +17,7 @@ from app.models.schemas import (
     KnowledgeBase,
 )
 from app.services.model_response_parser import parse_model_json_response
+from app.services.project_profile import get_project_profile
 
 
 ProgressCallback = Callable[[float, str, str], None]
@@ -313,7 +314,7 @@ class BookPlanner:
             for name, items in volume_groups.items()
         )
         direction = request.rough_direction.strip() or "未提供，由模型根据原作锚点自主构想。"
-        return f"""
+        prompt = f"""
 请基于以下有限上下文，为小说续写生成可执行的全书级 Book Plan。
 
 硬性要求：
@@ -374,6 +375,7 @@ class BookPlanner:
 ## 已有续写草稿尾部
 {draft_context or "- 暂无已有续写草稿"}
 """.strip()
+        return get_project_profile().adapt_legacy_prompt(prompt)
 
     def _normalize_plan(
         self,
@@ -459,7 +461,10 @@ class BookPlanner:
                 ),
             ),
             automation_level=request.automation_level,
-            title=_safe_text(payload.get("title"), "龙族 VI：未命名续写"),
+            title=_safe_text(
+                payload.get("title"),
+                get_project_profile().adapt_legacy_prompt("龙族 VI：未命名续写"),
+            ),
             premise=_safe_text(payload.get("premise")) or _raw_text_summary(raw_text),
             core_theme=_safe_text(payload.get("core_theme") or payload.get("theme")),
             focus_characters=_string_list(payload.get("focus_characters")),

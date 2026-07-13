@@ -11,6 +11,7 @@ from app.models.schemas import (
     TaskError,
     TaskType,
 )
+from app.services.project_context import get_current_project_id
 
 
 class TaskCancelled(RuntimeError):
@@ -72,28 +73,59 @@ class TaskManager:
         self,
         task_type: TaskType,
         input_summary: dict | None = None,
+        *,
+        project_id: str | None = None,
+        operation_type: str = "",
+        target_id: str = "",
+        user_visible_title: str = "",
     ) -> LongTask:
         task = LongTask(
             task_id=uuid.uuid4().hex[:12],
             type=task_type,
+            project_id=project_id or get_current_project_id(),
+            operation_type=operation_type or task_type.value,
+            target_id=target_id,
+            user_visible_title=user_visible_title or task_type.value,
             input_summary=input_summary or {},
         )
         with self._lock:
             self._tasks[task.task_id] = task
         return task
 
-    def get(self, task_id: str) -> LongTask | None:
+    def get(self, task_id: str, project_id: str | None = None) -> LongTask | None:
         with self._lock:
-            return self._tasks.get(task_id)
+            task = self._tasks.get(task_id)
+            if task is not None and project_id and task.project_id != project_id:
+                return None
+            return task
 
-    def list(self, limit: int = 50) -> list[LongTask]:
+    def list(
+        self,
+        limit: int = 50,
+        project_id: str | None = None,
+    ) -> list[LongTask]:
         with self._lock:
             tasks = sorted(
-                self._tasks.values(),
+                (
+                    task
+                    for task in self._tasks.values()
+                    if project_id is None or task.project_id == project_id
+                ),
                 key=lambda task: task.created_at,
                 reverse=True,
             )
             return tasks[: max(1, min(limit, 200))]
+
+    def clear(self, project_id: str | None = None) -> None:
+        with self._lock:
+            if project_id is None:
+                self._tasks.clear()
+                return
+            self._tasks = {
+                task_id: task
+                for task_id, task in self._tasks.items()
+                if task.project_id != project_id
+            }
 
     def update(
         self,
@@ -188,9 +220,11 @@ class TaskManager:
             task.logs = task.logs[-50:]
             return task
 
-    def cancel(self, task_id: str) -> LongTask:
+    def cancel(self, task_id: str, project_id: str | None = None) -> LongTask:
         with self._lock:
             task = self._require(task_id)
+            if project_id and task.project_id != project_id:
+                raise KeyError(task_id)
             if task.status in {
                 LongTaskStatus.SUCCESS,
                 LongTaskStatus.PARTIAL_SUCCESS,

@@ -1,4 +1,4 @@
-"""文风分析引擎 — 八维度分析《龙族》写作风格"""
+"""项目级文风分析引擎。"""
 
 import asyncio
 import hashlib
@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from anthropic import Anthropic
 from app.config import settings
+from app.services.file_ops import atomic_write_text
+from app.services.project_profile import get_project_profile
 from app.models.schemas import (
     AnalysisDimension,
     Chapter,
@@ -614,7 +616,9 @@ class StyleAnalyzer:
             "请严格按照要求的 JSON 格式输出分析结果，只输出 JSON，不要有其他内容。"
             "所有百分比以数字形式给出（如 35 代表 35%），不要加 % 符号。"
         )
-        user_prompt = f"{prompt_template}\n\n待分析正文：\n{text}"
+        user_prompt = get_project_profile().adapt_legacy_prompt(
+            f"{prompt_template}\n\n待分析正文：\n{text}"
+        )
 
         try:
             response = await asyncio.wait_for(
@@ -803,8 +807,13 @@ def _safe_cache_name(value: str) -> str:
 
 
 def _style_cache_path(chapter_id: str, novel_id: str | None = None) -> Path:
-    cache_root = settings.style_cache_dir / _safe_cache_name(
-        novel_id or settings.style_cache_novel_id
+    from app.services.project_paths import get_project_paths
+
+    paths = get_project_paths()
+    base = settings.style_cache_dir if paths.legacy else paths.analysis_style
+    cache_root = base / _safe_cache_name(
+        novel_id
+        or (settings.style_cache_novel_id if paths.legacy else paths.project_id)
     )
     return cache_root / f"chapter_{_safe_cache_name(chapter_id)}.json"
 
@@ -835,10 +844,7 @@ def save_chapter_style_cache(
     novel_id: str | None = None,
 ) -> Path:
     path = _style_cache_path(entry.chapter_id, novel_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(entry.model_dump_json(indent=2), encoding="utf-8")
-    temporary.replace(path)
+    atomic_write_text(path, entry.model_dump_json(indent=2))
     return path
 
 

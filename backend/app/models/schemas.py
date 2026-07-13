@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -321,6 +322,175 @@ class IterateRequest(BaseModel):
         return self
 
 
+# --- Projects ---
+
+_PROJECT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{2,63}$")
+
+
+class ProjectType(str, Enum):
+    CONTINUATION = "continuation"
+    ORIGINAL = "original"
+    ANALYSIS = "analysis"
+
+
+class ProjectStatus(str, Enum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class CorpusConfig(BaseModel):
+    mode: str = "managed"
+    source_paths: list[str] = Field(default_factory=list)
+    read_only: bool = True
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, value: str) -> str:
+        if value not in {"managed", "external_readonly", "none"}:
+            raise ValueError("语料模式必须是 managed、external_readonly 或 none")
+        return value
+
+
+class Project(BaseModel):
+    schema_version: int = 1
+    project_id: str
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=4000)
+    project_type: ProjectType = ProjectType.ORIGINAL
+    status: ProjectStatus = ProjectStatus.ACTIVE
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    corpus_config: CorpusConfig = Field(default_factory=CorpusConfig)
+    model_config_ref: dict = Field(default_factory=dict)
+    current_book_plan_id: str | None = None
+    current_chapter_id: str | None = None
+    metadata: dict = Field(default_factory=dict)
+    storage_mode: str = "managed"
+    legacy: bool = False
+    migration_state: str = "not_required"
+
+    @field_validator("project_id")
+    @classmethod
+    def validate_project_id(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not _PROJECT_ID_PATTERN.fullmatch(normalized):
+            raise ValueError(
+                "project_id 只能包含小写字母、数字、下划线和连字符，长度 3-64"
+            )
+        return normalized
+
+    @field_validator("storage_mode")
+    @classmethod
+    def validate_storage_mode(cls, value: str) -> str:
+        if value not in {"managed", "legacy"}:
+            raise ValueError("storage_mode 必须是 managed 或 legacy")
+        return value
+
+
+class ProjectCreateRequest(BaseModel):
+    project_id: str | None = None
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=4000)
+    project_type: ProjectType = ProjectType.ORIGINAL
+    corpus_config: CorpusConfig = Field(default_factory=CorpusConfig)
+    model_config_ref: dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
+
+    @field_validator("project_id")
+    @classmethod
+    def validate_optional_project_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if not _PROJECT_ID_PATTERN.fullmatch(normalized):
+            raise ValueError(
+                "project_id 只能包含小写字母、数字、下划线和连字符，长度 3-64"
+            )
+        return normalized
+
+
+class ProjectUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    corpus_config: CorpusConfig | None = None
+    model_config_ref: dict | None = None
+    current_book_plan_id: str | None = None
+    current_chapter_id: str | None = None
+    metadata: dict | None = None
+
+
+class ProjectSummary(BaseModel):
+    project_id: str
+    title: str
+    status: ProjectStatus
+    storage_mode: str
+    corpus_chapter_count: int = 0
+    corpus_word_count: int = 0
+    temp_generation_count: int = 0
+    official_chapter_count: int = 0
+    active_task_count: int = 0
+    current_chapter_id: str | None = None
+
+
+class ProjectDeleteResult(BaseModel):
+    project_id: str
+    deleted: bool = True
+    recoverable: bool = True
+    backup_path: str = ""
+    trash_path: str = ""
+
+
+class LegacyMigrationPreview(BaseModel):
+    source_project_id: str
+    source_paths: list[str] = Field(default_factory=list)
+    chapter_count: int = 0
+    total_words: int = 0
+    derived_file_count: int = 0
+    writable_file_count: int = 0
+    estimated_copy_bytes: int = 0
+    source_corpus_bytes: int = 0
+    source_corpus_will_be_copied: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class LegacyMigrationRequest(BaseModel):
+    title: str = Field(default="本地续写项目", min_length=1, max_length=200)
+    target_project_id: str | None = None
+    confirm_source_project_id: str
+    corpus_mode: str = "reference"
+
+    @field_validator("target_project_id")
+    @classmethod
+    def validate_target_project_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if not _PROJECT_ID_PATTERN.fullmatch(normalized):
+            raise ValueError("迁移目标 project_id 格式不安全")
+        return normalized
+
+    @field_validator("corpus_mode")
+    @classmethod
+    def validate_corpus_mode(cls, value: str) -> str:
+        if value not in {"reference", "copy"}:
+            raise ValueError("corpus_mode 必须是 reference 或 copy")
+        return value
+
+
+class LegacyMigrationResult(BaseModel):
+    source_project_id: str
+    target_project_id: str
+    backup_path: str
+    copied_files: int
+    copied_bytes: int
+    chapter_count_before: int
+    chapter_count_after: int
+    total_words_before: int
+    total_words_after: int
+    source_untouched: bool = True
+    rollback_available: bool = True
+
+
 # --- API Common ---
 
 class TaskStatus(BaseModel):
@@ -363,6 +533,10 @@ class TaskError(BaseModel):
 class LongTask(BaseModel):
     task_id: str
     type: TaskType
+    project_id: str = ""
+    operation_type: str = ""
+    target_id: str = ""
+    user_visible_title: str = ""
     status: LongTaskStatus = LongTaskStatus.PENDING
     progress: float = 0.0
     stage: str = "已创建任务"
@@ -450,7 +624,7 @@ class DraftVersion(BaseModel):
 # --- Continuation project planning ---
 
 class ProjectOutlineUpdate(BaseModel):
-    title: str = Field(default="龙族续写工程", max_length=200)
+    title: str = Field(default="写作项目", max_length=200)
     premise: str = Field(default="", max_length=8000)
     main_conflict: str = Field(default="", max_length=8000)
     tone: str = Field(default="", max_length=4000)
@@ -462,7 +636,7 @@ class ProjectOutlineUpdate(BaseModel):
 
 
 class ProjectOutline(ProjectOutlineUpdate):
-    project_id: str = "longzu_continuation"
+    project_id: str = "default"
     updated_at: datetime = Field(default_factory=datetime.now)
 
 
@@ -579,7 +753,7 @@ class BookPlanUpdate(BaseModel):
 
 class BookPlan(BookPlanUpdate):
     book_plan_id: str = "book_plan_main"
-    project_id: str = "longzu_continuation"
+    project_id: str = "default"
     model_name: str = ""
     prompt_chars: int = 0
     generation_source: str = "model"
@@ -668,8 +842,8 @@ class OfficialChapter(BaseModel):
 
 
 class WritingProjectManifest(BaseModel):
-    project_id: str = "longzu6"
-    title: str = "龙族 VI 续写工程"
+    project_id: str = "default"
+    title: str = "本地写作项目"
     book_plan_accepted: bool = False
     book_plan_file_path: str = ""
     official_chapter_count: int = 0

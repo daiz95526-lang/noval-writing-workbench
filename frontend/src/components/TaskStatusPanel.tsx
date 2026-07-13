@@ -11,7 +11,7 @@ interface Props {
 const TYPE_LABELS: Record<LongTask['type'], string> = {
   style_analysis: '风格分析',
   knowledge_build: '知识库构建',
-  generation: '续写生成',
+  generation: '章节生成',
   revision: '迭代修改',
   book_plan: '全书自动构想',
   chapter_review: 'AI 深度质检',

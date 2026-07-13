@@ -23,6 +23,7 @@ from app.models.schemas import (
     WritingProjectManifest,
 )
 from app.services.planning_store import planning_store
+from app.services.project_context import get_current_project_id, run_in_project
 from app.services.task_manager import task_manager
 from app.services.writing_project_store import writing_project_store
 
@@ -126,8 +127,16 @@ async def start_ai_chapter_review(
             "chapter_order": plan.order,
             "content_chars": len(request.content),
         },
+        target_id=plan.plan_id,
+        user_visible_title=f"质检第 {plan.order} 章",
     )
-    background_tasks.add_task(_run_ai_chapter_review, task.task_id, request)
+    background_tasks.add_task(
+        run_in_project,
+        task.project_id,
+        _run_ai_chapter_review,
+        task.task_id,
+        request,
+    )
     return task
 
 
@@ -148,14 +157,22 @@ async def start_ai_chapter_repair(
             "chapter_order": plan.order,
             "review_score": request.review_report.score,
         },
+        target_id=plan.plan_id,
+        user_visible_title=f"修复第 {plan.order} 章",
     )
-    background_tasks.add_task(_run_ai_chapter_repair, task.task_id, request)
+    background_tasks.add_task(
+        run_in_project,
+        task.project_id,
+        _run_ai_chapter_repair,
+        task.task_id,
+        request,
+    )
     return task
 
 
 @router.get("/chapter-generation/{task_id}")
 async def get_chapter_generation(task_id: str) -> LongTask:
-    task = task_manager.get(task_id)
+    task = task_manager.get(task_id, project_id=get_current_project_id())
     if task is None:
         raise HTTPException(404, "任务不存在")
     return task
@@ -422,7 +439,7 @@ def _chapter_review_context(plan):
         writing_project_store.load_book_plan(),
         previous.content[-2000:] if previous else "",
         next_plan,
-        generation._knowledge_base,
+        generation.get_current_knowledge_base(),
     )
 
 

@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 
 from app.models.schemas import Chapter
+from app.services.file_ops import atomic_write_json, atomic_write_text
+from app.services.project_profile import get_project_profile
 from app.services.local_importer import read_text_with_encoding
 from app.services.preprocessor import TextPreprocessor
 
@@ -59,6 +61,7 @@ def generate_chapter_audit(
     *,
     source_dir: Path,
     imported_chapters: list[Chapter],
+    output_dir: Path | None = None,
 ) -> dict:
     preprocessor = TextPreprocessor()
     files = sorted(source_dir.glob("*.txt"))
@@ -186,21 +189,19 @@ def generate_chapter_audit(
         },
     }
 
-    output_dir = source_dir.parent
-    (output_dir / "chapter_audit_report.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    (output_dir / "chapter_audit_report.md").write_text(
+    report_dir = output_dir or source_dir.parent
+    report_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(report_dir / "chapter_audit_report.json", report)
+    atomic_write_text(
+        report_dir / "chapter_audit_report.md",
         _render_markdown(report),
-        encoding="utf-8",
     )
     return report
 
 
 def _render_markdown(report: dict) -> str:
     lines = [
-        "# 龙族语料章节完整性审计报告",
+        f"# {get_project_profile().title}语料章节完整性审计报告",
         "",
         f"生成时间：{report['generated_at']}",
         "",

@@ -13,83 +13,7 @@ from app.models.schemas import (
     PlotNode,
     Theme,
 )
-
-# ── 提取提示词 ────────────────────────────────────────────────────
-
-_CHARACTER_EXTRACTION_PROMPT = """你是一位文学分析专家，擅长从小说文本中提取角色信息。
-
-请从以下《龙族》小说片段中提取所有**主要和次要角色**的信息。
-
-对每个角色提取：
-1. name: 角色全名
-2. aliases: 别称/绰号/外号列表
-3. personality: 性格特征描述（从行为、对话、内心活动中推断，100字以内）
-4. speech_style: 说话风格（从对话中总结特征，如"寡言、短句、每句不超过10字"）
-5. character_arc: 角色在文中的成长弧线或变化（如有）
-6. key_quotes: 标志性台词列表（直接引用原文，最多5条）
-7. relationships: 与其他角色的关系（格式：{"角色名": "关系描述"}）
-
-输出 JSON 数组：
-[{"name": "", "aliases": [], "personality": "", "speech_style": "", "character_arc": "", "key_quotes": [], "relationships": {}}, ...]
-
-只输出 JSON 数组，不要其他内容。"""
-
-_WORLD_SETTING_PROMPT = """你是一位文学分析专家，擅长从小说文本中提取世界观设定。
-
-请从以下《龙族》小说片段中提取所有**世界观设定**，包括：
-
-1. **组织/势力**：学校、组织、阵营、家族等（category: "organization"）
-2. **能力体系**：言灵、炼金术、血统等级、特殊能力等（category: "power_system"）
-3. **种族/物种**：龙族、混血种、人类等的设定（category: "species"）
-4. **关键地点**：重要的地理地点、建筑、场景（category: "location"）
-5. **历史/传说**：世界背景历史、神话传说、重大过去事件（category: "history"）
-6. **规则/法则**：世界运行的规则（category: "rule"）
-
-对每个设定提取：
-1. category: 上述6类之一
-2. name: 设定名称
-3. description: 详细描述（150字以内）
-4. related_characters: 与该设定相关的角色名列表
-
-输出 JSON 数组：
-[{"category": "", "name": "", "description": "", "related_characters": []}, ...]
-
-只输出 JSON 数组，不要其他内容。"""
-
-_PLOT_EXTRACTION_PROMPT = """你是一位文学分析专家，擅长从小说文本中提取情节和事件。
-
-请从以下《龙族》小说片段中提取所有**重要情节节点和事件**。
-
-对每个情节节点提取：
-1. volume: 所在卷名或编号
-2. chapter_range: 所在章节范围
-3. title: 事件简短标题（15字以内）
-4. summary: 事件摘要（100字以内）
-5. is_foreshadowing: 是否为伏笔（尚未解决或后续会呼应）—— true/false
-6. is_resolved: 伏笔是否已在此片段中解决—— true/false
-7. related_nodes: 相关的其他事件标题列表
-
-输出 JSON 数组：
-[{"volume": "", "chapter_range": "", "title": "", "summary": "", "is_foreshadowing": false, "is_resolved": true, "related_nodes": []}, ...]
-
-只输出 JSON 数组，不要其他内容。"""
-
-_THEME_EXTRACTION_PROMPT = """你是一位文学分析专家，擅长从小说文本中提取主题元素。
-
-《龙族》系列常见主题包括但不限于：孤独、命运、牺牲、成长、羁绊、热血、悲剧、复仇、救赎、衰仔逆袭、身份的困惑、力量的代价、少年与世界的对抗、友情与背叛。
-
-请从以下《龙族》小说片段中提取所有**出现的主题元素**。
-
-对每个主题提取：
-1. name: 主题名称
-2. description: 该主题在文中的具体表现（150字以内）
-3. typical_scenes: 该主题出现的典型场景列表（3-5个简短描述）
-4. key_passages: 体现该主题的关键原文段落（直接引用，最多3段，每段不超过100字）
-
-输出 JSON 数组：
-[{"name": "", "description": "", "typical_scenes": [], "key_passages": []}, ...]
-
-只输出 JSON 数组，不要其他内容。"""
+from app.services.project_profile import get_project_profile
 
 # ── 每批最大处理字数 ──
 _BATCH_MAX_CHARS = 15000
@@ -328,6 +252,8 @@ class KnowledgeBaseExtractor:
     def _fallback_characters(self, text: str) -> list[dict]:
         """基于规则提取角色名"""
         import re
+        if not get_project_profile().legacy:
+            return []
         # 龙族已知角色（关键词匹配）
         known_names = [
             "路明非", "楚子航", "凯撒", "陈墨瞳", "诺诺", "夏弥", "苏茜",
@@ -348,6 +274,8 @@ class KnowledgeBaseExtractor:
     def _fallback_world_settings(self, text: str) -> list[dict]:
         """基于规则提取世界观设定"""
         import re
+        if not get_project_profile().legacy:
+            return []
         settings_list = [
             ("organization", "卡塞尔学院", "培养混血种的精英学院"),
             ("organization", "密党", "管理混血种的古老组织"),
@@ -421,6 +349,8 @@ class KnowledgeBaseExtractor:
             "救赎": ["拯救", "救赎", "赎罪", "弥补"],
             "衰仔逆袭": ["废物", "没用", "我不是", "原来我", "我也可以"],
         }
+        if not get_project_profile().legacy:
+            themes_map.pop("衰仔逆袭", None)
         found = []
         for theme_name, keywords in themes_map.items():
             score = sum(text.count(kw) for kw in keywords)

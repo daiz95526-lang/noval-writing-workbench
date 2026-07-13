@@ -1,19 +1,16 @@
 """Canonical local source loader."""
 
 from pathlib import Path
-from app.config import settings
 from app.models.schemas import Chapter
 from app.services.preprocessor import preprocess_file
+from app.services.project_paths import get_project_paths
 
 
 class FileLoader:
     """本地文件加载器 — 扫描目录、加载文本、调用预处理"""
 
     def __init__(self, raw_dir: Path | None = None):
-        self._raw_dir = (
-            raw_dir
-            or settings.data_dir / "books" / "longzu" / "source_txt"
-        )
+        self._raw_dir = raw_dir or get_project_paths().source
 
     def list_files(self) -> list[Path]:
         """列出 raw 目录下的所有文本文件"""

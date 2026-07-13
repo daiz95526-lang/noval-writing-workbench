@@ -8,6 +8,7 @@ from threading import RLock
 from typing import Any
 
 from app.config import settings
+from app.services.file_ops import atomic_write_json, atomic_write_text
 from app.models.schemas import (
     BookPlan,
     GenerationResult,
@@ -32,7 +33,17 @@ def _word_count(text: str) -> int:
 
 
 class WritingProjectStore:
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        project_id: str = "longzu6",
+        title: str = "本地续写项目",
+        legacy_layout: bool = True,
+    ) -> None:
+        self.project_id = project_id
+        self.project_title = title
+        self.legacy_layout = legacy_layout
         self._lock = RLock()
         self.set_root(Path(root or settings.writing_project_dir))
 
@@ -60,25 +71,27 @@ class WritingProjectStore:
         if not self.manifest_path.exists():
             self._write_json(
                 self.manifest_path,
-                WritingProjectManifest().model_dump(mode="json"),
+                WritingProjectManifest(
+                    project_id=self.project_id,
+                    title=self.project_title,
+                ).model_dump(mode="json"),
             )
+
+    def _book_plan_stem(self) -> str:
+        return "longzu6_plan" if self.legacy_layout else "book_plan"
+
+    def _path_label(self, path: Path) -> str:
+        if self.legacy_layout:
+            return f"writing_projects/longzu6/{path.relative_to(self.root).as_posix()}"
+        return f"writing/{path.relative_to(self.root).as_posix()}"
 
     @staticmethod
     def _write_json(path: Path, value: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(path.suffix + ".tmp")
-        temp.write_text(
-            json.dumps(value, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temp.replace(path)
+        atomic_write_json(path, value)
 
     @staticmethod
     def _write_text(path: Path, value: str) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(path.suffix + ".tmp")
-        temp.write_text(value, encoding="utf-8")
-        temp.replace(path)
+        atomic_write_text(path, value)
 
     @staticmethod
     def _validate_id(value: str) -> str:
@@ -111,11 +124,13 @@ class WritingProjectStore:
 
     def save_book_plan(self, plan: BookPlan) -> BookPlan:
         with self._lock:
-            json_path = self.book_plan_dir / "longzu6_plan.json"
-            md_path = self.book_plan_dir / "longzu6_plan.md"
+            stem = self._book_plan_stem()
+            json_path = self.book_plan_dir / f"{stem}.json"
+            md_path = self.book_plan_dir / f"{stem}.md"
             saved = plan.model_copy(
                 update={
-                    "file_path": "writing_projects/longzu6/book_plan/longzu6_plan.json",
+                    "project_id": self.project_id,
+                    "file_path": self._path_label(json_path),
                     "updated_at": _now(),
                 }
             )
@@ -128,7 +143,7 @@ class WritingProjectStore:
             return saved
 
     def load_book_plan(self) -> BookPlan | None:
-        path = self.book_plan_dir / "longzu6_plan.json"
+        path = self.book_plan_dir / f"{self._book_plan_stem()}.json"
         if not path.exists():
             return None
         try:
@@ -184,7 +199,7 @@ class WritingProjectStore:
             "## 核心谜团",
             plan.central_mystery,
             "",
-            "## 与龙族 I-V 的关系",
+            "## 与既有作品的关系",
             plan.relation_to_previous_books,
             "",
             "## 开局",
@@ -276,16 +291,12 @@ class WritingProjectStore:
             md_path = self.temp_dir / f"{temp_id}.md"
             json_path = self.temp_dir / f"{temp_id}.json"
             now = _now()
-            md_relative = (
-                f"writing_projects/longzu6/temp_generations/{temp_id}.md"
-            )
-            json_relative = (
-                f"writing_projects/longzu6/temp_generations/{temp_id}.json"
-            )
+            md_relative = self._path_label(md_path)
+            json_relative = self._path_label(json_path)
             record = TempGeneration(
                 temp_id=temp_id,
                 generation_id=temp_id,
-                chapter_title="龙族 VI 原始构想文本",
+                chapter_title="总体构想原始文本",
                 record_type="book_plan_raw",
                 content=raw_text,
                 word_count=_word_count(raw_text),
@@ -323,7 +334,7 @@ class WritingProjectStore:
                 warning=value.warning,
                 can_save=value.can_save,
                 can_repair=value.can_repair,
-                file_path=f"writing_projects/longzu6/temp_generations/{temp_id}.json",
+                file_path=self._path_label(self.temp_dir / f"{temp_id}.json"),
                 created_at=now,
                 updated_at=now,
             )
@@ -449,7 +460,7 @@ class WritingProjectStore:
                 title=value.title.strip(),
                 content=value.content.strip(),
                 word_count=_word_count(value.content),
-                file_path=f"writing_projects/longzu6/official_chapters/{path.name}",
+                file_path=self._path_label(path),
                 source_generation_id=value.source_generation_id,
                 source_plan_id=value.source_plan_id,
                 completeness_passed=completeness_passed,
@@ -615,4 +626,21 @@ class WritingProjectStore:
         return f"{prefix}{max(numbers, default=0) + 1:06d}"
 
 
-writing_project_store = WritingProjectStore()
+from app.services.project_context import ProjectScopedStore
+from app.services.project_store import project_store
+
+
+def _project_writing_store(project_id: str) -> WritingProjectStore:
+    project = project_store.get(project_id)
+    return WritingProjectStore(
+        project_store.layout(project_id).writing,
+        project_id=project_id,
+        title=project.title,
+        legacy_layout=False,
+    )
+
+
+writing_project_store = ProjectScopedStore(
+    WritingProjectStore(),
+    _project_writing_store,
+)

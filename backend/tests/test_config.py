@@ -15,6 +15,7 @@ from app.config import (  # noqa: E402
     DEFAULT_HOST,
     DEFAULT_PORT,
     DEFAULT_PROJECT_ID,
+    DEFAULT_PROJECTS_DIR,
     DEFAULT_PROJECT_TITLE,
     DEFAULT_WRITING_PROJECT_DIR,
     PROJECT_ROOT,
@@ -31,6 +32,7 @@ def test_default_paths_and_project_identity_remain_compatible() -> None:
     assert settings.project_id == DEFAULT_PROJECT_ID == "longzu6"
     assert settings.project_title == DEFAULT_PROJECT_TITLE
     assert settings.data_dir == DEFAULT_DATA_DIR
+    assert settings.projects_dir == DEFAULT_PROJECTS_DIR
     assert settings.corpus_source_dir == DEFAULT_CORPUS_SOURCE_DIR
     assert settings.continuation_project_dir == DEFAULT_CONTINUATION_PROJECT_DIR
     assert settings.writing_project_dir == DEFAULT_WRITING_PROJECT_DIR
@@ -45,7 +47,9 @@ def test_env_overrides_paths_and_project_metadata() -> None:
             "PROJECT_ID": "custom_project",
             "PROJECT_TITLE": "Custom Project",
             "DATA_DIR": "./local-data",
+            "PROJECTS_DIR": "./local-projects",
             "CORPUS_SOURCE_DIR": "./local-corpus",
+            "EXTERNAL_CORPUS_ROOTS": "./reference-a,./reference-b",
             "CONTINUATION_PROJECT_DIR": "./local-project",
             "WRITING_PROJECT_DIR": "./local-writing",
         }
@@ -60,7 +64,12 @@ def test_env_overrides_paths_and_project_metadata() -> None:
     assert settings.project_id == "custom_project"
     assert settings.project_title == "Custom Project"
     assert settings.data_dir == (PROJECT_ROOT / "local-data").resolve()
+    assert settings.projects_dir == (PROJECT_ROOT / "local-projects").resolve()
     assert settings.corpus_source_dir == (PROJECT_ROOT / "local-corpus").resolve()
+    assert settings.allowed_external_corpus_roots == (
+        (PROJECT_ROOT / "reference-a").resolve(),
+        (PROJECT_ROOT / "reference-b").resolve(),
+    )
     assert settings.continuation_project_dir == (
         PROJECT_ROOT / "local-project"
     ).resolve()

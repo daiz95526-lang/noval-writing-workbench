@@ -1,4 +1,24 @@
 const BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+export const ACTIVE_PROJECT_STORAGE_KEY = 'noval.active-project-id';
+
+export function getActiveProjectId(): string {
+  return localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY) || '';
+}
+
+export function setActiveProjectId(projectId: string): void {
+  if (projectId) localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, projectId);
+  else localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
+}
+
+export function getProjectStorageKey(baseKey: string): string {
+  const projectId = getActiveProjectId();
+  return projectId ? `${baseKey}.${projectId}` : `${baseKey}.unselected`;
+}
+
+function projectHeaders(): Record<string, string> {
+  const projectId = getActiveProjectId();
+  return projectId ? { 'X-Project-ID': projectId } : {};
+}
 
 export type ApiErrorKind = 'not_found' | 'http';
 
@@ -19,7 +39,12 @@ export function isApiNotFoundError(error: unknown): error is ApiError {
 }
 const DEFAULT_TIMEOUT_MS = 60_000; // 60秒超时
 
-async function request<T>(url: string, options?: RequestInit, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
+async function request<T>(
+  url: string,
+  options?: RequestInit,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  includeProject = true,
+): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -27,9 +52,11 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs = DEFAUL
     const isFormData = options?.body instanceof FormData;
     const res = await fetch(`${BASE}${url}`, {
       ...options,
-      headers: isFormData
-        ? options?.headers
-        : { 'Content-Type': 'application/json', ...options?.headers },
+      headers: {
+        ...(includeProject ? projectHeaders() : {}),
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+        ...options?.headers,
+      },
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -56,6 +83,51 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs = DEFAUL
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ── Projects ──
+
+export type ProjectType = 'continuation' | 'original' | 'analysis';
+export type ProjectStatus = 'active' | 'archived';
+
+export interface Project {
+  schema_version: number;
+  project_id: string;
+  title: string;
+  description: string;
+  project_type: ProjectType;
+  status: ProjectStatus;
+  created_at: string;
+  updated_at: string;
+  corpus_config: {
+    mode: 'managed' | 'external_readonly' | 'none';
+    source_paths: string[];
+    read_only: boolean;
+  };
+  model_config_ref: Record<string, unknown>;
+  current_book_plan_id: string | null;
+  current_chapter_id: string | null;
+  metadata: Record<string, unknown>;
+  storage_mode: 'managed' | 'legacy';
+  legacy: boolean;
+  migration_state: string;
+}
+
+export function listProjects() {
+  return request<Project[]>('/projects', undefined, DEFAULT_TIMEOUT_MS, false);
+}
+
+export function createProject(value: {
+  title: string;
+  description?: string;
+  project_type: ProjectType;
+}) {
+  return request<Project>(
+    '/projects',
+    { method: 'POST', body: JSON.stringify(value) },
+    DEFAULT_TIMEOUT_MS,
+    false,
+  );
 }
 
 // ── Corpus ──
@@ -198,6 +270,10 @@ export interface TaskError {
 export interface LongTask {
   task_id: string;
   type: LongTaskType;
+  project_id: string;
+  operation_type: string;
+  target_id: string;
+  user_visible_title: string;
   status: LongTaskState;
   progress: number;
   stage: string;
@@ -750,7 +826,7 @@ export function checkDraftContinuity(id: string) {
 export async function exportDraft(id: string, format: 'md' | 'txt') {
   const res = await fetch(`${BASE}/drafts/${encodeURIComponent(id)}/export`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...projectHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ format }),
   });
   if (!res.ok) {
@@ -881,7 +957,7 @@ export function deleteOfficialChapter(id: string) {
 export async function exportOfficialChapter(id: string, format: 'md' | 'txt') {
   const res = await fetch(`${BASE}/official-chapters/${encodeURIComponent(id)}/export`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...projectHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ format }),
   });
   if (!res.ok) {

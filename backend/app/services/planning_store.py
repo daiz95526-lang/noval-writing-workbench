@@ -8,6 +8,7 @@ from threading import RLock
 from typing import Any
 
 from app.config import settings
+from app.services.file_ops import atomic_write_json
 from app.models.schemas import (
     BookPlan,
     BookPlanUpdate,
@@ -26,7 +27,15 @@ def _now() -> datetime:
 
 
 class PlanningStore:
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        project_id: str = "longzu_continuation",
+        title: str = "本地续写项目",
+    ) -> None:
+        self.project_id = project_id
+        self.project_title = title
         self._lock = RLock()
         self.set_root(Path(root or settings.continuation_project_dir))
 
@@ -43,19 +52,17 @@ class PlanningStore:
         if not self.outline_path.exists():
             self._write_json(
                 self.outline_path,
-                ProjectOutline().model_dump(mode="json"),
+                ProjectOutline(
+                    project_id=self.project_id,
+                    title=self.project_title,
+                ).model_dump(mode="json"),
             )
         if not self.plans_path.exists():
             self._write_json(self.plans_path, [])
 
     @staticmethod
     def _write_json(path: Path, value: Any) -> None:
-        temp = path.with_suffix(path.suffix + ".tmp")
-        temp.write_text(
-            json.dumps(value, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temp.replace(path)
+        atomic_write_json(path, value)
 
     @staticmethod
     def _validate_id(value: str) -> str:
@@ -77,6 +84,7 @@ class PlanningStore:
         with self._lock:
             outline = ProjectOutline(
                 **value.model_dump(),
+                project_id=self.project_id,
                 updated_at=_now(),
             )
             self._write_json(
@@ -166,6 +174,7 @@ class PlanningStore:
             now = _now()
             saved = value.model_copy(
                 update={
+                    "project_id": self.project_id,
                     "created_at": current.created_at if current else value.created_at,
                     "updated_at": now,
                     "target_chapter_count": len(value.chapters),
@@ -182,6 +191,7 @@ class PlanningStore:
         saved = BookPlan(
             **value.model_dump(),
             book_plan_id=current.book_plan_id if current else "book_plan_main",
+            project_id=self.project_id,
             model_name=current.model_name if current else "",
             prompt_chars=current.prompt_chars if current else 0,
             generation_source=current.generation_source if current else "manual",
@@ -365,4 +375,17 @@ class PlanningStore:
         return "\n\n".join(sections)
 
 
-planning_store = PlanningStore()
+from app.services.project_context import ProjectScopedStore
+from app.services.project_store import project_store
+
+
+def _project_planning_store(project_id: str) -> PlanningStore:
+    project = project_store.get(project_id)
+    return PlanningStore(
+        project_store.layout(project_id).planning,
+        project_id=project_id,
+        title=project.title,
+    )
+
+
+planning_store = ProjectScopedStore(PlanningStore(), _project_planning_store)

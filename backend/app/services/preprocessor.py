@@ -4,6 +4,7 @@ import hashlib
 import re
 from pathlib import Path
 from app.models.schemas import Chapter, ChapterMeta, CorpusStatus
+from app.services.project_profile import get_project_profile
 
 
 class TextPreprocessor:
@@ -13,7 +14,7 @@ class TextPreprocessor:
     CHAPTER_PATTERNS = [
         re.compile(r"^第[一二三四五六七八九十百千\d]+章\s+.+"),  # 第X章 标题（先匹配更具体的）
         re.compile(r"^第[一二三四五六七八九十百千\d]+[卷章节回]"),  # 第X卷/章/节/回
-        re.compile(r"第[一二三四五六七八九十百千\d]+幕"),  # 第X幕（可在行中，如"龙族3 第一幕 标题"）
+        re.compile(r"第[一二三四五六七八九十百千\d]+幕"),  # 第X幕，可出现在行内
         re.compile(r"^(序\s*幕|开\s*篇)(?:\s+.*)?$"),
         re.compile(r"^[Vv]olume\s*\d+"),  # Volume 1
         re.compile(r"^[第]?[一二三四五六七八九十\d]+\s*[卷幕]"),  # 第X卷/幕
@@ -162,8 +163,10 @@ class TextPreprocessor:
         cleaned = self.clean_text(raw_text)
         chapter_tuples = self.split_chapters(cleaned, volume_name)
 
-        display_name, series_order, sub_order = self.VOLUME_DISPLAY_MAP.get(
-            volume_name, (volume_name, 0, "")
+        volume_map = self.VOLUME_DISPLAY_MAP if get_project_profile().legacy else {}
+        display_name, series_order, sub_order = volume_map.get(
+            volume_name,
+            (volume_name, 0, ""),
         )
 
         result: list[Chapter] = []

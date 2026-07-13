@@ -20,6 +20,7 @@ from app.services.draft_store import draft_store
 from app.services.planning_store import planning_store
 from app.services.task_manager import task_manager
 from app.services.writing_project_store import writing_project_store
+from app.services.project_context import run_in_project
 
 
 router = APIRouter()
@@ -83,8 +84,17 @@ async def generate_book_plan(
             "target_chapter_count": request.target_chapter_count,
             "automation_level": request.automation_level,
         },
+        operation_type="book_plan_generate",
+        target_id=request.source_anchor_chapter_id,
+        user_visible_title="生成总体构想",
     )
-    background_tasks.add_task(_run_book_plan, task.task_id, request)
+    background_tasks.add_task(
+        run_in_project,
+        task.project_id,
+        _run_book_plan,
+        task.task_id,
+        request,
+    )
     return task
 
 
@@ -139,8 +149,13 @@ async def complete_chapter_plans(
             "book_plan_id": book_plan.book_plan_id,
             "target_chapter_count": book_plan.target_chapter_count,
         },
+        operation_type="chapter_plans_complete",
+        target_id=book_plan.book_plan_id,
+        user_visible_title="生成完整章节规划",
     )
     background_tasks.add_task(
+        run_in_project,
+        task.project_id,
         _run_complete_chapter_plans,
         task.task_id,
         book_plan,
@@ -163,8 +178,13 @@ async def revise_current_book_plan(
             "book_plan_id": book_plan.book_plan_id,
             "feedback": request.feedback[:500],
         },
+        operation_type="book_plan_revision",
+        target_id=book_plan.book_plan_id,
+        user_visible_title="修改总体构想",
     )
     background_tasks.add_task(
+        run_in_project,
+        task.project_id,
         _run_book_plan_revision,
         task.task_id,
         book_plan,
@@ -255,7 +275,7 @@ async def _run_book_plan(
         book_plan = await conceive_book_plan(
             request=request,
             chapters=list(_corpus_store.values()),
-            knowledge_base=generation._knowledge_base,
+            knowledge_base=generation.get_current_knowledge_base(),
             drafts=drafts,
             progress_callback=report,
         )

@@ -27,6 +27,7 @@ from app.prompts.generation import (
     LOCAL_EDIT_PROMPT,
     STYLE_SYSTEM_PROMPT,
 )
+from app.services.project_profile import get_project_profile
 
 # ── 未分析时使用的默认风格描述 ──
 
@@ -80,7 +81,7 @@ class GenerationServiceError(RuntimeError):
 
 
 class ContinuationGenerator:
-    """续写生成引擎 — 基于风格特征和知识库生成《龙族》风格续写"""
+    """基于项目风格特征和知识库生成连续正文。"""
 
     def __init__(
         self,
@@ -573,7 +574,7 @@ class ContinuationGenerator:
         plot_direction = request.plot_direction or "自由发挥"
 
         # 使用默认风格特征（后续可从 StyleProfile 动态填充）
-        return STYLE_SYSTEM_PROMPT.format(
+        prompt = STYLE_SYSTEM_PROMPT.format(
             lexical_features=_DEFAULT_STYLE["lexical_features"],
             syntactic_features=_DEFAULT_STYLE["syntactic_features"],
             rhetorical_features=_DEFAULT_STYLE["rhetorical_features"],
@@ -583,6 +584,7 @@ class ContinuationGenerator:
             target_words=request.target_word_count,
             character_states=character_states,
         )
+        return get_project_profile().adapt_legacy_prompt(prompt)
 
     def _build_user_prompt(self, chapter: Chapter, request: GenerationRequest) -> str:
         """组装 user prompt，包含上文内容和用户指令"""
@@ -605,11 +607,12 @@ class ContinuationGenerator:
         if request.pov_character:
             pov = f"本章主要视角角色：{request.pov_character}"
 
-        return CHAPTER_GENERATION_PROMPT.format(
+        prompt = CHAPTER_GENERATION_PROMPT.format(
             context=context,
             plot_direction=plot_direction,
             additional_instructions="\n".join(filter(None, [pov, additional])),
         )
+        return get_project_profile().adapt_legacy_prompt(prompt)
 
     def _build_segment_prompt(
         self,

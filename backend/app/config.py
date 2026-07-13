@@ -18,6 +18,7 @@ DEFAULT_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEFAULT_PROJECT_ID = "longzu6"
 DEFAULT_PROJECT_TITLE = "龙族 VI 续写工程"
 DEFAULT_DATA_DIR = BACKEND_DIR / "data"
+DEFAULT_PROJECTS_DIR = DEFAULT_DATA_DIR / "projects"
 DEFAULT_CORPUS_SOURCE_DIR = DEFAULT_DATA_DIR / "books" / "longzu" / "source_txt"
 DEFAULT_CONTINUATION_PROJECT_DIR = (
     DEFAULT_DATA_DIR / "projects" / "longzu_continuation"
@@ -66,12 +67,14 @@ class Settings(BaseModel):
 
     # Data paths
     data_dir: Path = DEFAULT_DATA_DIR
+    projects_dir: Path = DEFAULT_PROJECTS_DIR
     raw_dir: Path = DEFAULT_DATA_DIR / "raw"
     processed_dir: Path = DEFAULT_DATA_DIR / "processed"
     analysis_dir: Path = DEFAULT_DATA_DIR / "analysis"
     style_cache_dir: Path = DEFAULT_DATA_DIR / "style_cache"
     style_cache_novel_id: str = "longzu"
     corpus_source_dir: Path = DEFAULT_CORPUS_SOURCE_DIR
+    allowed_external_corpus_roots: tuple[Path, ...] = ()
     continuation_project_dir: Path = DEFAULT_CONTINUATION_PROJECT_DIR
     writing_project_dir: Path = DEFAULT_WRITING_PROJECT_DIR
 
@@ -123,6 +126,24 @@ def _get_path(
     warnings: list[str],
 ) -> Path:
     return _resolve_path(_env_value(env, name), warnings, name, default)
+
+
+def _get_path_list(
+    env: Mapping[str, Any],
+    name: str,
+    warnings: list[str],
+) -> tuple[Path, ...]:
+    raw = _env_value(env, name)
+    if not raw:
+        return ()
+    values: list[Path] = []
+    for index, item in enumerate(raw.split(","), start=1):
+        item = item.strip()
+        if item:
+            values.append(
+                _resolve_path(item, warnings, f"{name}[{index}]", PROJECT_ROOT)
+            )
+    return tuple(dict.fromkeys(values))
 
 
 def _get_int(
@@ -216,6 +237,12 @@ def build_settings(env: Mapping[str, Any] | None = None) -> Settings:
     settings.project_title = _get_text(env, "PROJECT_TITLE", DEFAULT_PROJECT_TITLE)
 
     settings.data_dir = _get_path(env, "DATA_DIR", DEFAULT_DATA_DIR, warnings)
+    settings.projects_dir = _get_path(
+        env,
+        "PROJECTS_DIR",
+        settings.data_dir / "projects",
+        warnings,
+    )
     settings.raw_dir = _get_path(env, "RAW_DIR", settings.data_dir / "raw", warnings)
     settings.processed_dir = _get_path(
         env,
@@ -239,6 +266,11 @@ def build_settings(env: Mapping[str, Any] | None = None) -> Settings:
         env,
         "CORPUS_SOURCE_DIR",
         settings.data_dir / "books" / "longzu" / "source_txt",
+        warnings,
+    )
+    settings.allowed_external_corpus_roots = _get_path_list(
+        env,
+        "EXTERNAL_CORPUS_ROOTS",
         warnings,
     )
     settings.continuation_project_dir = _get_path(

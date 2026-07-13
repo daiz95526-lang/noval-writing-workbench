@@ -10,6 +10,7 @@ import {
   generateBookPlan,
   getBookPlan,
   getConfigStatus,
+  getProjectStorageKey,
   getLongTask,
   getOfficialChapter,
   getWritingProject,
@@ -52,7 +53,7 @@ type WorkspaceTab = 'plan' | 'chapter' | 'temp' | 'official';
 type GenerationAction = 'chapter_generation' | 'continuation' | 'regeneration';
 
 const STORAGE_KEY = 'noval.continuation-workspace-v2';
-const PROJECT_ROOT = 'writing_projects/longzu6';
+const PROJECT_ROOT = '当前项目';
 
 interface StoredState {
   activeTab: WorkspaceTab;
@@ -64,7 +65,7 @@ interface StoredState {
   selectedPlanId: string;
 }
 
-function loadStoredState(): StoredState {
+function loadStoredState(storageKey: string): StoredState {
   const fallback: StoredState = {
     activeTab: 'plan',
     bookPlanTaskId: '',
@@ -75,7 +76,7 @@ function loadStoredState(): StoredState {
     selectedPlanId: '',
   };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     return raw ? { ...fallback, ...JSON.parse(raw) as Partial<StoredState> } : fallback;
   } catch {
     return fallback;
@@ -126,7 +127,8 @@ function useLongTask(
 }
 
 export default function Generator() {
-  const [stored] = useState(loadStoredState);
+  const [storageKey] = useState(() => getProjectStorageKey(STORAGE_KEY));
+  const [stored] = useState(() => loadStoredState(storageKey));
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(stored.activeTab);
   const [chapters, setChapters] = useState<ChapterMeta[]>([]);
   const [bookPlan, setBookPlan] = useState<BookPlan | null>(null);
@@ -233,7 +235,7 @@ export default function Generator() {
         ? '总体构想已按要求修改，请重新审核。'
         : task.input_summary.operation === 'complete_chapter_plans'
           ? `完整章节规划已生成，共 ${nextPlan?.chapters.length || 0} 章。`
-          : '《龙族 VI》总体构想已生成，请先生成完整章节规划。');
+          : '总体构想已生成，请先生成完整章节规划。');
       void refreshWritingData();
     } else if (task.status === 'failed' || task.status === 'cancelled') {
       setBookPlanTaskId('');
@@ -469,7 +471,7 @@ export default function Generator() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(storageKey, JSON.stringify({
       activeTab,
       bookPlanTaskId,
       generationTaskId,
@@ -479,6 +481,7 @@ export default function Generator() {
       selectedPlanId,
     }));
   }, [
+    storageKey,
     activeTab,
     bookPlanTaskId,
     generationTaskId,
@@ -546,7 +549,7 @@ export default function Generator() {
       });
       setBookPlanTask(task);
       setBookPlanTaskId(task.task_id);
-      setMessage('正在分析龙族 I-V、知识库、风格与原作结尾，构想《龙族 VI》。');
+      setMessage('正在分析项目语料、知识库、风格与已有草稿，生成总体构想。');
     });
   };
 
@@ -993,7 +996,7 @@ export default function Generator() {
     <div>
       <div style={headerStyle}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 22 }}>续写工作台</h2>
+          <h2 style={{ margin: 0, fontSize: 22 }}>创作</h2>
           <div style={subtleStyle}>
             写作项目：{PROJECT_ROOT} · 模型：{modelLabel || '读取中'}
           </div>
@@ -1031,7 +1034,7 @@ export default function Generator() {
           <section className="bg-panel" style={panelStyle}>
             <h3 style={headingStyle}>一键构想下一部</h3>
             <p style={helpStyle}>
-              粗略方向可以留空。系统会分析龙族 I-V、知识库、风格规则、原作结尾和已有草稿，自动构想《龙族 VI》。
+              粗略方向可以留空。系统会结合当前项目语料、知识库、风格规则和已有草稿生成总体构想。
             </p>
             <Field label="粗略方向（可留空）">
               <textarea
@@ -1056,7 +1059,7 @@ export default function Generator() {
             </div>
             <div style={buttonRowStyle}>
               <PrimaryButton busy={busy === 'book-plan' || bookPlanActive} disabled={Boolean(busy) || bookPlanActive} onClick={() => { void startBookPlan(); }}>
-                一键构想龙族 VI
+                生成总体构想
               </PrimaryButton>
               {bookPlan && (
                 <PrimaryButton busy={busy === 'book-plan' || bookPlanActive} disabled={Boolean(busy) || bookPlanActive} onClick={() => { void startBookPlan(); }}>
@@ -1101,8 +1104,8 @@ export default function Generator() {
             )}
             <div className="bg-panel-alt" style={pathBoxStyle}>
               总体构想保存位置：<br />
-              {PROJECT_ROOT}/book_plan/longzu6_plan.json<br />
-              {PROJECT_ROOT}/book_plan/longzu6_plan.md
+              {PROJECT_ROOT}/planning/book_plan.json<br />
+              {PROJECT_ROOT}/planning/book_plan.md
             </div>
           </section>
 
@@ -1129,7 +1132,7 @@ export default function Generator() {
                   : `章节规划未完成：请先点击“生成完整章节规划”，完成前不能生成正式正文。`}
               </div>
             )}
-            {!bookPlan ? <p style={emptyStyle}>点击“一键构想龙族 VI”后，完整方案会显示在这里。</p> : (
+            {!bookPlan ? <p style={emptyStyle}>生成总体构想后，完整方案会显示在这里。</p> : (
               <>
                 <Field label="书名"><input value={bookPlan.title} onChange={(event) => setBookPlan({ ...bookPlan, title: event.target.value })} style={wideStyle} /></Field>
                 <Field label="本部故事"><textarea value={bookPlan.premise} onChange={(event) => setBookPlan({ ...bookPlan, premise: event.target.value })} rows={4} style={wideStyle} /></Field>
@@ -1140,7 +1143,7 @@ export default function Generator() {
                   <Field label="暗线冲突"><textarea value={bookPlan.hidden_conflict} onChange={(event) => setBookPlan({ ...bookPlan, hidden_conflict: event.target.value })} rows={4} style={wideStyle} /></Field>
                 </div>
                 <Field label="核心谜团"><textarea value={bookPlan.central_mystery} onChange={(event) => setBookPlan({ ...bookPlan, central_mystery: event.target.value })} rows={3} style={wideStyle} /></Field>
-                <Field label="与龙族 I-V 的关系及选择理由"><textarea value={bookPlan.relation_to_previous_books} onChange={(event) => setBookPlan({ ...bookPlan, relation_to_previous_books: event.target.value })} rows={4} style={wideStyle} /></Field>
+                <Field label="与既有作品的关系及选择理由"><textarea value={bookPlan.relation_to_previous_books} onChange={(event) => setBookPlan({ ...bookPlan, relation_to_previous_books: event.target.value })} rows={4} style={wideStyle} /></Field>
                 <div style={twoColumnStyle}>
                   <Field label="要回收的旧伏笔（每行一条）"><textarea value={bookPlan.old_foreshadowing_to_resolve.join('\n')} onChange={(event) => setBookPlan({ ...bookPlan, old_foreshadowing_to_resolve: splitLines(event.target.value) })} rows={4} style={wideStyle} /></Field>
                   <Field label="要埋下的新伏笔（每行一条）"><textarea value={bookPlan.new_foreshadowing_to_plant.join('\n')} onChange={(event) => setBookPlan({ ...bookPlan, new_foreshadowing_to_plant: splitLines(event.target.value) })} rows={4} style={wideStyle} /></Field>

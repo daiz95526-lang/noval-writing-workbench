@@ -122,7 +122,7 @@ export default function CorpusManage() {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, color: '#c8c8d0', marginBottom: 4 }}>自动扫描导入</div>
             <div style={{ fontSize: 12, color: '#6a6a7a' }}>
-              扫描 backend/data/books/longzu/source_txt/ 中的 8 个 txt 文件，自动分章、去重后导入
+              扫描当前项目配置的只读语料目录，自动分章、去重后导入
             </div>
           </div>
           <button className="btn-primary" onClick={handleScan} disabled={scanning} style={{ whiteSpace: 'nowrap' }}>
