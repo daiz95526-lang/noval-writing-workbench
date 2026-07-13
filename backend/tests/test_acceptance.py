@@ -37,6 +37,7 @@ from app.models.schemas import (
     WorldSetting,
 )
 from app.routers import generation as generation_router
+from app.services import local_importer
 from app.services.generator import ContinuationGenerator, GenerationServiceError
 from app.services.generator import _apply_revision_edits, _revision_diagnostics
 from app.services.chapter_planner import (
@@ -61,8 +62,30 @@ class AcceptanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._original_style_cache_dir = settings.style_cache_dir
+        cls._original_processed_dir = settings.processed_dir
         cls._style_cache_temp = tempfile.TemporaryDirectory()
+        cls._corpus_output_temp = tempfile.TemporaryDirectory()
         settings.style_cache_dir = Path(cls._style_cache_temp.name)
+        corpus_output_root = Path(cls._corpus_output_temp.name)
+        settings.processed_dir = corpus_output_root / "processed"
+        cls._corpus_output_patches = [
+            patch.object(
+                local_importer,
+                "_META_INDEX_PATH",
+                corpus_output_root / "chapters_meta.json",
+            ),
+            patch.object(
+                local_importer,
+                "_IMPORT_REPORT_PATH",
+                corpus_output_root / "import_report.json",
+            ),
+            patch(
+                "app.services.chapter_audit.generate_chapter_audit",
+                return_value={},
+            ),
+        ]
+        for output_patch in cls._corpus_output_patches:
+            output_patch.start()
         cls._original_project_root = draft_store.root
         cls._original_planning_root = planning_store.root
         cls._original_writing_root = writing_project_store.root
@@ -80,7 +103,11 @@ class AcceptanceTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         settings.style_cache_dir = cls._original_style_cache_dir
+        settings.processed_dir = cls._original_processed_dir
+        for output_patch in reversed(cls._corpus_output_patches):
+            output_patch.stop()
         cls._style_cache_temp.cleanup()
+        cls._corpus_output_temp.cleanup()
         draft_store.set_root(cls._original_project_root)
         planning_store.set_root(cls._original_planning_root)
         writing_project_store.set_root(cls._original_writing_root)
