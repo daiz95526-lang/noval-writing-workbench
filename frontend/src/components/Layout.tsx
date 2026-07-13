@@ -1,11 +1,25 @@
-import { type ReactNode } from 'react';
-import { type Project } from '../api';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  BookOpenText,
+  FolderKanban,
+  Home,
+  LibraryBig,
+  Menu,
+  PenLine,
+  ScanSearch,
+  Settings,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react';
+import { listTasks, type LongTask, type Project } from '../api';
+import ProjectSwitcher from './ProjectSwitcher';
+import { Alert, IconButton } from './ui';
 
-type Page = 'dashboard' | 'corpus' | 'analysis' | 'generator';
+export type AppPage = 'home' | 'projects' | 'corpus' | 'analysis' | 'creation' | 'library' | 'settings';
 
 interface Props {
-  currentPage: Page;
-  onNavigate: (p: Page) => void;
+  currentPage: AppPage;
+  onNavigate: (page: AppPage) => void;
   projects: Project[];
   activeProjectId: string;
   onProjectChange: (projectId: string) => void;
@@ -14,95 +28,74 @@ interface Props {
   children: ReactNode;
 }
 
-const NAV: { key: Page; label: string }[] = [
-  { key: 'dashboard', label: '总览' },
-  { key: 'corpus', label: '语料管理' },
-  { key: 'analysis', label: '风格分析' },
-  { key: 'generator', label: '创作' },
-];
+const NAV_GROUPS = [
+  { label: '工作区', items: [
+    { key: 'home', label: '首页', icon: Home },
+    { key: 'projects', label: '项目', icon: FolderKanban },
+  ] },
+  { label: '当前项目', items: [
+    { key: 'corpus', label: '语料库', icon: BookOpenText },
+    { key: 'analysis', label: '分析', icon: ScanSearch },
+    { key: 'creation', label: '创作', icon: PenLine },
+    { key: 'library', label: '章节库', icon: LibraryBig },
+  ] },
+] satisfies { label: string; items: { key: AppPage; label: string; icon: typeof Home }[] }[];
 
-export default function Layout({
-  currentPage,
-  onNavigate,
-  projects,
-  activeProjectId,
-  onProjectChange,
-  onProjectCreate,
-  projectError,
-  children,
-}: Props) {
+const PAGE_LABELS: Record<AppPage, string> = {
+  home: '首页', projects: '项目', corpus: '语料库', analysis: '分析中心', creation: '创作工作台', library: '章节库', settings: '设置',
+};
+
+export default function Layout({ currentPage, onNavigate, projects, activeProjectId, onProjectChange, onProjectCreate, projectError, children }: Props) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [tasks, setTasks] = useState<LongTask[]>([]);
+  const activeProject = useMemo(() => projects.find((project) => project.project_id === activeProjectId), [projects, activeProjectId]);
+
+  useEffect(() => {
+    if (!activeProjectId) return;
+    let disposed = false;
+    const refresh = () => { void listTasks(12).then((items) => { if (!disposed) setTasks(items); }).catch(() => { if (!disposed) setTasks([]); }); };
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [activeProjectId]);
+
+  const activeTask = activeProjectId ? tasks.find((task) => task.status === 'pending' || task.status === 'running') : undefined;
+  const navigate = (page: AppPage) => { onNavigate(page); setMobileOpen(false); };
+
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Sidebar */}
-      <aside style={{
-        width: 200,
-        backgroundColor: '#0d0d14',
-        borderRight: '1px solid #1e1e2e',
-        padding: '24px 0',
-        flexShrink: 0,
-      }}>
-        <div style={{ padding: '0 20px', marginBottom: 32 }}>
-          <h1 style={{ fontSize: 18, fontWeight: 700, color: '#c8a86e', margin: 0, letterSpacing: 2 }}>
-            NOVAL
-          </h1>
-          <p style={{ fontSize: 11, color: '#6a6a7a', margin: '4px 0 0' }}>本地 AI 长篇写作工作台</p>
-          <label style={{ display: 'block', fontSize: 11, color: '#8a8a9a', marginTop: 18 }}>
-            当前项目
-            <select
-              value={activeProjectId}
-              onChange={(event) => onProjectChange(event.target.value)}
-              style={{ width: '100%', marginTop: 6, padding: '7px 8px' }}
-              aria-label="当前项目"
-            >
-              {!projects.length && <option value="">暂无项目</option>}
-              {projects.map((project) => (
-                <option key={project.project_id} value={project.project_id}>
-                  {project.title}{project.status === 'archived' ? '（已归档）' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            onClick={onProjectCreate}
-            style={{ width: '100%', marginTop: 8, padding: '7px 8px', cursor: 'pointer' }}
-          >
-            新建项目
-          </button>
-          {projectError && (
-            <p style={{ fontSize: 11, color: '#d78484', lineHeight: 1.5 }}>
-              {projectError}
-            </p>
-          )}
+    <div className="app-shell">
+      {mobileOpen && <button className="app-sidebar-backdrop" aria-label="关闭导航" onClick={() => setMobileOpen(false)} />}
+      <aside className="app-sidebar" data-open={mobileOpen} aria-label="主导航">
+        <div className="app-brand">
+          <div className="app-brand__mark" aria-hidden="true">N</div>
+          <div className="app-brand__text"><div className="app-brand__name">NOVAL</div><div className="app-brand__tagline">本地 AI 长篇写作工作台</div></div>
+          <IconButton className="app-mobile-menu" label="关闭导航" variant="ghost" onClick={() => setMobileOpen(false)}><X size={18} /></IconButton>
         </div>
-        <nav>
-          {NAV.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => onNavigate(item.key)}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                padding: '10px 20px',
-                border: 'none',
-                background: currentPage === item.key ? '#1a1a2e' : 'transparent',
-                color: currentPage === item.key ? '#c8a86e' : '#8a8a9a',
-                cursor: 'pointer',
-                fontSize: 14,
-                borderLeft: currentPage === item.key ? '2px solid #c8a86e' : '2px solid transparent',
-                transition: 'all 0.15s',
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
+        <ProjectSwitcher projects={projects} activeProjectId={activeProjectId} onChange={onProjectChange} onCreate={onProjectCreate} />
+        <nav className="app-nav">
+          {NAV_GROUPS.map((group) => <div className="app-nav__group" key={group.label}><div className="app-nav__label">{group.label}</div>{group.items.map(({ key, label, icon: Icon }) => <button key={key} className="app-nav__item" aria-current={currentPage === key ? 'page' : undefined} onClick={() => navigate(key)} disabled={!activeProjectId && !['home', 'projects'].includes(key)} title={label}><Icon size={17} aria-hidden="true" /><span>{label}</span></button>)}</div>)}
         </nav>
+        <div className="app-sidebar__footer"><button className="app-nav__item" aria-current={currentPage === 'settings' ? 'page' : undefined} onClick={() => navigate('settings')}><Settings size={17} /><span>设置</span></button></div>
       </aside>
 
-      {/* Main content */}
-      <main style={{ flex: 1, padding: '24px 32px', overflowY: 'auto', maxHeight: '100vh' }}>
-        {children}
-      </main>
+      <div className="app-workspace">
+        <header className="app-topbar">
+          <div className="app-topbar__actions">
+            <IconButton className="app-mobile-menu" label="打开导航" variant="ghost" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><Menu size={18} /></IconButton>
+            <div className="app-topbar__context"><div className="app-topbar__title">{PAGE_LABELS[currentPage]}</div><div className="app-topbar__project">{activeProject?.title || '尚未选择项目'}</div></div>
+          </div>
+          <div className="app-topbar__actions">
+            <div className="app-task-indicator" title={activeTask ? activeTask.stage || activeTask.message : '当前没有运行中的任务'}><span className={`app-task-indicator__dot${activeTask ? ' app-task-indicator__dot--active' : ''}`} /><span>{activeTask ? '后台任务进行中' : '任务空闲'}</span></div>
+            <IconButton label="设置" variant="ghost" onClick={() => navigate('settings')}><SlidersHorizontal size={18} /></IconButton>
+          </div>
+        </header>
+        <main className="app-main">
+          <div className="app-content">
+            {projectError && <Alert tone="danger" title="项目操作失败" className="app-project-error">{projectError}</Alert>}
+            {children}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

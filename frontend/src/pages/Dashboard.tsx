@@ -1,100 +1,61 @@
+import { ArrowRight, BookOpenText, FileText, PenLine, ScanSearch } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getCorpusStats, listChapters, type CorpusStats, type ChapterMeta } from '../api';
+import type { AppPage } from '../components/Layout';
+import { Button, EmptyState, ErrorState, LoadingState, PageHeader, Panel, SectionHeader } from '../components/ui';
+import { getCorpusStats, listChapters, type ChapterMeta, type CorpusStats, type Project } from '../api';
 
-export default function Dashboard() {
+export default function Dashboard({ project, onNavigate }: { project: Project; onNavigate: (page: AppPage) => void }) {
   const [stats, setStats] = useState<CorpusStats | null>(null);
   const [chapters, setChapters] = useState<ChapterMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
-  const pageSize = 50;
+  const pageSize = 30;
 
-  useEffect(() => {
-    Promise.all([getCorpusStats(), listChapters()])
-      .then(([s, c]) => { setStats(s); setChapters(c); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+  const refresh = async () => {
+    setLoading(true); setError('');
+    try { const [nextStats, nextChapters] = await Promise.all([getCorpusStats(), listChapters()]); setStats(nextStats); setChapters(nextChapters); }
+    catch (value) { setError(value instanceof Error ? value.message : '无法读取项目概览'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { const timer = window.setTimeout(() => { void refresh(); }, 0); return () => window.clearTimeout(timer); }, []);
 
-  if (loading) return <div style={{ color: '#6a6a7a' }}>加载中...</div>;
-  if (error) return <div style={{ color: '#c86e6e' }}>加载失败: {error}</div>;
+  if (loading) return <LoadingState label="正在加载项目概览" />;
+  if (error) return <ErrorState title="项目概览加载失败" description={error} actions={<Button onClick={() => void refresh()}>重试</Button>} />;
+
   const totalPages = Math.max(1, Math.ceil(chapters.length / pageSize));
   const visibleChapters = chapters.slice((page - 1) * pageSize, page * pageSize);
+  const hasCorpus = chapters.length > 0;
 
-  return (
-    <div>
-      <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 24 }}>系统总览</h2>
-
-      {/* Stats cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
-        <StatCard label="总卷数" value={stats?.total_volumes ?? 0} />
-        <StatCard label="总章节" value={stats?.total_chapters ?? 0} />
-        <StatCard label="总字数" value={formatNum(stats?.total_words ?? 0)} />
-        <StatCard label="已处理" value={`${stats?.processed_chapters ?? 0}/${stats?.total_chapters ?? 0}`} />
-      </div>
-
-      {/* Chapter list */}
-      <div className="bg-panel" style={{ padding: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>章节列表</h3>
-          <span style={{ fontSize: 12, color: '#8a8a9a' }}>
-            共 {chapters.length} 章，当前显示 {visibleChapters.length} 章
-          </span>
-        </div>
-        {chapters.length === 0 ? (
-          <p style={{ color: '#6a6a7a' }}>暂无章节。请在"语料管理"中上传文本。</p>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #1e1e2e', textAlign: 'left' }}>
-                <th style={{ padding: '8px 12px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>卷</th>
-                <th style={{ padding: '8px 12px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>序号</th>
-                <th style={{ padding: '8px 12px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>标题</th>
-                <th style={{ padding: '8px 12px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>字数</th>
-                <th style={{ padding: '8px 12px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>对话比</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleChapters.map((ch) => (
-                <tr key={ch.chapter_id} style={{ borderBottom: '1px solid #1a1a28' }}>
-                  <td style={{ padding: '8px 12px', fontSize: 13 }}>{ch.volume_display_name || ch.volume_key || '-'}</td>
-                  <td style={{ padding: '8px 12px', fontSize: 13 }}>{ch.chapter_order}</td>
-                  <td style={{ padding: '8px 12px', fontSize: 13 }}>{ch.title}</td>
-                  <td style={{ padding: '8px 12px', fontSize: 13, color: '#8a8a9a' }}>{formatNum(ch.word_count)}</td>
-                  <td style={{ padding: '8px 12px', fontSize: 13, color: '#8a8a9a' }}>{formatPercent(ch.dialogue_ratio)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        )}
-        {chapters.length > pageSize && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 14 }}>
-            <button className="btn-primary" disabled={page <= 1} onClick={() => setPage((value) => value - 1)} style={{ padding: '4px 12px', fontSize: 12 }}>上一页</button>
-            <span style={{ fontSize: 12, color: '#8a8a9a' }}>{page}/{totalPages}</span>
-            <button className="btn-primary" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)} style={{ padding: '4px 12px', fontSize: 12 }}>下一页</button>
-          </div>
-        )}
-      </div>
+  return <div className="page-stack">
+    <PageHeader title={project.title} description={project.description || '从语料分析、作品规划到章节写作，所有内容都保存在当前本地项目中。'} breadcrumbs="工作区 / 首页" actions={<Button variant="primary" icon={<PenLine size={16} />} onClick={() => onNavigate('creation')}>进入创作工作台</Button>} />
+    <div className="metric-grid">
+      <Metric label="语料章节" value={stats?.total_chapters ?? 0} accent />
+      <Metric label="语料字数" value={formatNum(stats?.total_words ?? 0)} />
+      <Metric label="分卷数量" value={stats?.total_volumes ?? 0} />
+      <Metric label="已处理章节" value={`${stats?.processed_chapters ?? 0}/${stats?.total_chapters ?? 0}`} />
     </div>
-  );
+    {!hasCorpus ? <Panel><EmptyState icon={<BookOpenText size={20} />} title="当前项目还没有语料" description="导入合法的本地文本并扫描章节后，即可进行风格分析和辅助创作。" actions={<Button variant="primary" onClick={() => onNavigate('corpus')}>导入语料</Button>} /></Panel> : <>
+      <div className="project-grid">
+        <QuickAction icon={<BookOpenText size={18} />} title="整理语料" description="查看导入报告和章节内容。" onClick={() => onNavigate('corpus')} />
+        <QuickAction icon={<ScanSearch size={18} />} title="分析作品" description="提取风格特征，构建创作参考。" onClick={() => onNavigate('analysis')} />
+        <QuickAction icon={<FileText size={18} />} title="继续写作" description="打开规划、生成和编辑流程。" onClick={() => onNavigate('creation')} />
+      </div>
+      <Panel><SectionHeader title="语料章节" description={`共 ${chapters.length} 章，当前显示 ${visibleChapters.length} 章。`} actions={<Button size="sm" variant="ghost" onClick={() => onNavigate('corpus')}>管理语料 <ArrowRight size={14} /></Button>} />
+        <div className="table-scroll"><table className="data-table"><thead><tr><th>分卷</th><th>序号</th><th>标题</th><th>字数</th><th>对话占比</th></tr></thead><tbody>{visibleChapters.map((chapter) => <tr key={chapter.chapter_id}><td>{chapter.volume_display_name || chapter.volume_key || '-'}</td><td>{chapter.chapter_order}</td><td>{chapter.title}</td><td>{formatNum(chapter.word_count)}</td><td>{formatPercent(chapter.dialogue_ratio)}</td></tr>)}</tbody></table></div>
+        {chapters.length > pageSize && <div className="table-pagination"><Button size="sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</Button><span>{page} / {totalPages}</span><Button size="sm" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>下一页</Button></div>}
+      </Panel>
+    </>}
+  </div>;
 }
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="bg-panel" style={{ padding: '16px 20px' }}>
-      <div style={{ fontSize: 12, color: '#6a6a7a', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: '#c8a86e' }}>{value}</div>
-    </div>
-  );
+function Metric({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
+  return <div className={`metric ui-panel${accent ? ' metric--accent' : ''}`}><div className="metric__label">{label}</div><div className="metric__value">{value}</div></div>;
 }
 
-function formatNum(n: number): string {
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
-  return n.toLocaleString();
+function QuickAction({ icon, title, description, onClick }: { icon: React.ReactNode; title: string; description: string; onClick: () => void }) {
+  return <button className="quick-action" onClick={onClick}><span className="quick-action__icon">{icon}</span><span><strong>{title}</strong><small>{description}</small></span><ArrowRight size={16} aria-hidden="true" /></button>;
 }
 
-function formatPercent(n: number): string {
-  return `${(n * 100).toFixed(1)}%`;
-}
+function formatNum(value: number): string { return value >= 10000 ? `${(value / 10000).toFixed(1)} 万` : value.toLocaleString(); }
+function formatPercent(value: number): string { return `${(value * 100).toFixed(1)}%`; }

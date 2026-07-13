@@ -4,6 +4,7 @@ import {
   scanLocal, getImportReport,
   type CorpusStats, type ChapterMeta, type Chapter, type ImportReport,
 } from '../api';
+import { Alert, EmptyState, LoadingState, PageHeader } from '../components/ui';
 
 export default function CorpusManage() {
   const [stats, setStats] = useState<CorpusStats | null>(null);
@@ -97,16 +98,16 @@ export default function CorpusManage() {
     }
   };
 
-  if (loading) return <div style={{ color: '#6a6a7a' }}>加载中...</div>;
+  if (loading) return <LoadingState label="正在加载语料库" />;
 
   return (
-    <div>
-      <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 24 }}>语料管理</h2>
+    <div className="page-stack corpus-page">
+      <PageHeader title="语料库" description="导入合法的本地文本、扫描章节并查看只读语料内容。" breadcrumbs="当前项目 / 语料库" />
 
-      {error && <div style={{ background: '#2e1a1a', color: '#c86e6e', padding: '8px 12px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>{error}</div>}
-      {message && <div style={{ background: '#1a2e1a', color: '#6ec86e', padding: '8px 12px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>{message}</div>}
+      {error && <Alert tone="danger">{error}</Alert>}
+      {message && <Alert tone="success">{message}</Alert>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div className="metric-grid">
         <StatBadge label="总章节" value={stats?.total_chapters ?? 0} />
         <StatBadge label="总字数" value={stats ? formatNum(stats.total_words) : '0'} />
         <StatBadge label="已处理" value={`${stats?.processed_chapters ?? 0}/${stats?.total_chapters ?? 0}`} />
@@ -120,8 +121,8 @@ export default function CorpusManage() {
         {/* Scan local */}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, color: '#c8c8d0', marginBottom: 4 }}>自动扫描导入</div>
-            <div style={{ fontSize: 12, color: '#6a6a7a' }}>
+            <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 4 }}>自动扫描导入</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               扫描当前项目配置的只读语料目录，自动分章、去重后导入
             </div>
           </div>
@@ -130,8 +131,8 @@ export default function CorpusManage() {
           </button>
         </div>
 
-        <div style={{ borderTop: '1px solid #1e1e2e', paddingTop: 16 }}>
-          <div style={{ fontSize: 13, color: '#c8c8d0', marginBottom: 4 }}>手动上传文件</div>
+        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 4 }}>手动上传文件</div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <input ref={fileRef} type="file" accept=".txt,.md" style={{ flex: 1 }} />
             <button className="btn-primary" onClick={handleUpload} disabled={uploading} style={{ whiteSpace: 'nowrap' }}>
@@ -145,42 +146,42 @@ export default function CorpusManage() {
       {importReport && importReport.details.length > 0 && (
         <div className="bg-panel" style={{ padding: 20, marginBottom: 24 }}>
           <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>最近导入报告</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16 }}>
+          <div className="report-metrics">
             <MiniBadge label="扫描文件" value={importReport.scanned_files} />
-            <MiniBadge label="新增章节" value={importReport.new_chapters} color="#6ec86e" />
-            <MiniBadge label="跳过重复" value={importReport.skipped_duplicates} color="#c8a86e" />
-            <MiniBadge label="失败" value={importReport.failed_files} color={importReport.failed_files > 0 ? '#c86e6e' : undefined} />
+            <MiniBadge label="新增章节" value={importReport.new_chapters} color="var(--success)" />
+            <MiniBadge label="跳过重复" value={importReport.skipped_duplicates} color="var(--warning)" />
+            <MiniBadge label="失败" value={importReport.failed_files} color={importReport.failed_files > 0 ? 'var(--danger)' : undefined} />
             <MiniBadge label="当前总章节" value={importReport.total_chapters_after} />
           </div>
           <div style={{ maxHeight: 320, overflow: 'auto' }}>
           <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid #1e1e2e', textAlign: 'left' }}>
-                <th style={{ padding: '6px 10px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>文件</th>
-                <th style={{ padding: '6px 10px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>状态</th>
-                <th style={{ padding: '6px 10px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>发现章节</th>
-                <th style={{ padding: '6px 10px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>新增</th>
-                <th style={{ padding: '6px 10px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>跳过</th>
-                <th style={{ padding: '6px 10px', color: '#6a6a7a', fontSize: 12, fontWeight: 500 }}>备注</th>
+              <tr style={{ borderBottom: '1px solid var(--border-subtle)', textAlign: 'left' }}>
+                <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontSize: 12, fontWeight: 500 }}>文件</th>
+                <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontSize: 12, fontWeight: 500 }}>状态</th>
+                <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontSize: 12, fontWeight: 500 }}>发现章节</th>
+                <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontSize: 12, fontWeight: 500 }}>新增</th>
+                <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontSize: 12, fontWeight: 500 }}>跳过</th>
+                <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontSize: 12, fontWeight: 500 }}>备注</th>
               </tr>
             </thead>
             <tbody>
               {importReport.details.map((d, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #1a1a28' }}>
+                <tr key={i} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                   <td style={{ padding: '6px 10px' }}>{d.file}</td>
                   <td style={{ padding: '6px 10px' }}>
                     <span style={{
                       fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                      background: d.status === 'ok' ? '#1a2e1a' : d.status === 'empty' ? '#1a1a2e' : '#2e1a1a',
-                      color: d.status === 'ok' ? '#6ec86e' : d.status === 'empty' ? '#6a6a7a' : '#c86e6e',
+                      background: d.status === 'ok' ? 'var(--success-soft)' : d.status === 'empty' ? 'var(--surface-hover)' : 'var(--danger-soft)',
+                      color: d.status === 'ok' ? 'var(--success)' : d.status === 'empty' ? 'var(--text-muted)' : 'var(--danger)',
                     }}>
                       {d.status === 'ok' ? '成功' : d.status === 'empty' ? '空文件' : '错误'}
                     </span>
                   </td>
                   <td style={{ padding: '6px 10px' }}>{d.chapters_found}</td>
-                  <td style={{ padding: '6px 10px', color: '#6ec86e' }}>{d.chapters_added}</td>
-                  <td style={{ padding: '6px 10px', color: '#c8a86e' }}>{d.chapters_skipped}</td>
-                  <td style={{ padding: '6px 10px', color: '#6a6a7a', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ padding: '6px 10px', color: 'var(--success)' }}>{d.chapters_added}</td>
+                  <td style={{ padding: '6px 10px', color: 'var(--warning)' }}>{d.chapters_skipped}</td>
+                  <td style={{ padding: '6px 10px', color: 'var(--text-muted)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {d.error_message || '-'}
                   </td>
                 </tr>
@@ -188,21 +189,21 @@ export default function CorpusManage() {
             </tbody>
           </table>
           </div>
-          <div style={{ fontSize: 11, color: '#6a6a7a', marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
             {importReport.timestamp ? new Date(importReport.timestamp).toLocaleString('zh-CN') : ''}
           </div>
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+      <div className="responsive-two-column">
         {/* Chapter list */}
         <div className="bg-panel" style={{ padding: 20, maxHeight: 500, overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
             <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>章节列表</h3>
-            <span style={{ fontSize: 12, color: '#8a8a9a' }}>共 {chapters.length} 章，全部已加载</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>共 {chapters.length} 章，全部已加载</span>
           </div>
           {chapters.length === 0 ? (
-            <p style={{ color: '#6a6a7a', fontSize: 13 }}>暂无章节。请扫描本地语料或手动上传。</p>
+            <EmptyState title="暂无语料章节" description="扫描当前项目的语料目录，或上传 TXT、Markdown 文件。" />
           ) : (
             chapters.map((ch) => {
               const chapterId = ch.chapter_id;
@@ -213,7 +214,7 @@ export default function CorpusManage() {
                   style={{
                     padding: '8px 12px',
                     cursor: 'pointer',
-                    borderBottom: '1px solid #1a1a28',
+                    borderBottom: '1px solid var(--border-subtle)',
                     fontSize: 13,
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -221,7 +222,7 @@ export default function CorpusManage() {
                   title={chapterId}
                 >
                   <span>[{ch.volume_display_name}] {ch.chapter_order}. {ch.title || chapterId}</span>
-                  <span style={{ color: '#6a6a7a', fontSize: 12 }}>{formatNum(ch.word_count)}字</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{formatNum(ch.word_count)}字</span>
                 </div>
               );
             })
@@ -232,18 +233,18 @@ export default function CorpusManage() {
         <div className="bg-panel" style={{ padding: 20, maxHeight: 500, overflowY: 'auto' }}>
           <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>章节详情</h3>
           {!selected ? (
-            <p style={{ color: '#6a6a7a', fontSize: 13 }}>点击左侧章节查看内容</p>
+            <EmptyState title="选择一个章节" description="章节正文只用于本地阅读和分析。" />
           ) : (
             <div>
               <div style={{ marginBottom: 12 }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{selected.title}</span>
-                <span style={{ fontSize: 12, color: '#6a6a7a', marginLeft: 12 }}>{formatNum(selected.word_count)}字</span>
-                <span style={{ fontSize: 12, color: '#6a6a7a', marginLeft: 8 }}>对话比 {(selected.dialogue_ratio * 100).toFixed(1)}%</span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 12 }}>{formatNum(selected.word_count)}字</span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>对话比 {(selected.dialogue_ratio * 100).toFixed(1)}%</span>
               </div>
               <button className="btn-danger" style={{ marginBottom: 12, fontSize: 12, padding: '4px 12px' }} onClick={() => handleDelete(selected.chapter_id)}>
                 删除此章节
               </button>
-              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.8, maxHeight: 340, overflowY: 'auto', color: '#aaa' }}>
+              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.8, maxHeight: 340, overflowY: 'auto', color: 'var(--text-secondary)' }}>
                 {selected.content}
               </div>
             </div>
@@ -256,9 +257,9 @@ export default function CorpusManage() {
 
 function StatBadge({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="bg-panel" style={{ padding: '12px 16px', textAlign: 'center' }}>
-      <div style={{ fontSize: 11, color: '#6a6a7a', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: '#c8a86e' }}>{value}</div>
+    <div className="metric ui-panel">
+      <div className="metric__label">{label}</div>
+      <div className="metric__value">{value}</div>
     </div>
   );
 }
@@ -266,8 +267,8 @@ function StatBadge({ label, value }: { label: string; value: string | number }) 
 function MiniBadge({ label, value, color }: { label: string; value: number; color?: string }) {
   return (
     <div className="bg-panel-alt" style={{ padding: '10px 14px', textAlign: 'center' }}>
-      <div style={{ fontSize: 11, color: '#6a6a7a', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: color || '#c8a86e' }}>{value}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: color || 'var(--text-primary)' }}>{value}</div>
     </div>
   );
 }

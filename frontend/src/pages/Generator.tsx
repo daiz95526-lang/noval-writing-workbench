@@ -48,6 +48,7 @@ import {
   type WritingProjectManifest,
 } from '../api';
 import TaskStatusPanel from '../components/TaskStatusPanel';
+import { Alert, Button, PageHeader, Tabs } from '../components/ui';
 
 type WorkspaceTab = 'plan' | 'chapter' | 'temp' | 'official';
 type GenerationAction = 'chapter_generation' | 'continuation' | 'regeneration';
@@ -126,10 +127,10 @@ function useLongTask(
   return [task, setTask] as const;
 }
 
-export default function Generator() {
+export default function Generator({ initialTab }: { initialTab?: WorkspaceTab }) {
   const [storageKey] = useState(() => getProjectStorageKey(STORAGE_KEY));
   const [stored] = useState(() => loadStoredState(storageKey));
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>(stored.activeTab);
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(initialTab || stored.activeTab);
   const [chapters, setChapters] = useState<ChapterMeta[]>([]);
   const [bookPlan, setBookPlan] = useState<BookPlan | null>(null);
   const [plans, setPlans] = useState<ChapterPlan[]>([]);
@@ -993,41 +994,26 @@ export default function Generator() {
   };
 
   return (
-    <div>
-      <div style={headerStyle}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 22 }}>创作</h2>
-          <div style={subtleStyle}>
-            写作项目：{PROJECT_ROOT} · 模型：{modelLabel || '读取中'}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right', fontSize: 12, color: '#8a8a9a' }}>
-          正式章节 {manifest?.official_chapter_count || 0} · 临时记录 {manifest?.temp_generation_count || 0}
-        </div>
-      </div>
+    <div className="page-stack creation-workspace">
+      <PageHeader
+        title={initialTab === 'official' ? '章节库' : '创作工作台'}
+        description={initialTab === 'official' ? '查看正式章节、临时生成记录与导出入口。' : `规划、生成、人工编辑与质检在同一工作区完成。模型：${modelLabel || '读取中'}`}
+        breadcrumbs={initialTab === 'official' ? '当前项目 / 章节库' : '当前项目 / 创作'}
+        actions={<><span className="ui-badge">正式章节 {manifest?.official_chapter_count || 0}</span><span className="ui-badge">临时记录 {manifest?.temp_generation_count || 0}</span></>}
+      />
 
       <div style={{ position: 'sticky', top: 8, zIndex: 5 }}>
-        {error && <Banner color="#d78484" background="#321c1c">{error}</Banner>}
-        {message && <Banner color="#72cf83" background="#17301d">{message}</Banner>}
-        {notice && <Banner color="#b5b5c5" background="#22222d">{notice}</Banner>}
+        {error && <Alert tone="danger">{error}</Alert>}
+        {message && <Alert tone="success">{message}</Alert>}
+        {notice && <Alert tone="info">{notice}</Alert>}
       </div>
 
-      <div style={tabBarStyle}>
-        {([
-          ['plan', '1 总体构想'],
-          ['chapter', '2 章节生成'],
-          ['temp', '3 临时生成记录'],
-          ['official', '4 正式章节库'],
-        ] as [WorkspaceTab, string][]).map(([key, label]) => (
-          <button
-            key={key}
-            className={activeTab === key ? 'btn-primary' : ''}
-            onClick={() => setActiveTab(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs label="创作流程" value={activeTab} onChange={setActiveTab} items={[
+        { key: 'plan', label: '1 总体构想' },
+        { key: 'chapter', label: '2 章节生成' },
+        { key: 'temp', label: '3 临时记录', badge: manifest?.temp_generation_count || 0 },
+        { key: 'official', label: '4 正式章节', badge: manifest?.official_chapter_count || 0 },
+      ]} />
 
       {activeTab === 'plan' && (
         <div style={twoPanelStyle}>
@@ -1076,7 +1062,7 @@ export default function Generator() {
             )}
             {Boolean(bookPlanTask?.result.raw_book_plan_text) && bookPlanTask && (
               <div className="bg-panel-alt" style={{ padding: 12, marginTop: 12 }}>
-                <div style={{ color: '#c9a96e', fontSize: 13, fontWeight: 600 }}>
+              <div style={{ color: 'var(--warning)', fontSize: 13, fontWeight: 600 }}>
                   结构化解析失败，但模型已返回原始构想文本
                 </div>
                 <div style={{ ...pathBoxStyle, marginTop: 8 }}>
@@ -1113,7 +1099,7 @@ export default function Generator() {
             <div style={sectionHeaderStyle}>
               <div>
                 <h3 style={{ ...headingStyle, marginBottom: 2 }}>总体构想审核</h3>
-                <span style={{ color: bookPlan?.accepted ? '#72cf83' : '#c9a96e', fontSize: 12 }}>
+                  <span style={{ color: bookPlan?.accepted ? 'var(--success)' : 'var(--warning)', fontSize: 12 }}>
                   {bookPlan?.accepted ? '已接受，可生成章节' : bookPlan ? '待审核' : '尚未生成'}
                 </span>
               </div>
@@ -1126,7 +1112,7 @@ export default function Generator() {
               </div>
             </div>
             {bookPlan && (
-              <div style={{ ...pathBoxStyle, color: bookPlan.chapter_plans_complete ? '#72cf83' : '#c86e6e' }}>
+              <div style={{ ...pathBoxStyle, color: bookPlan.chapter_plans_complete ? 'var(--success)' : 'var(--danger)' }}>
                 {bookPlan.chapter_plans_complete
                   ? `章节规划完整：${bookPlan.chapters.length}/${bookPlan.target_chapter_count} 章，可以接受并生成正文。`
                   : `章节规划未完成：请先点击“生成完整章节规划”，完成前不能生成正式正文。`}
@@ -1158,7 +1144,7 @@ export default function Generator() {
                   <Field label="结尾方向"><textarea value={bookPlan.ending_direction} onChange={(event) => setBookPlan({ ...bookPlan, ending_direction: event.target.value })} rows={4} style={wideStyle} /></Field>
                 </div>
                 <details style={{ marginTop: 12 }}>
-                  <summary style={{ cursor: 'pointer', color: '#c9a96e' }}>查看 {bookPlan.chapters.length} 章安排</summary>
+                  <summary style={{ cursor: 'pointer', color: 'var(--warning)' }}>查看 {bookPlan.chapters.length} 章安排</summary>
                   <div style={{ maxHeight: 360, overflowY: 'auto', marginTop: 8 }}>
                     {bookPlan.chapters.map((chapter) => (
                       <div key={chapter.order} className="bg-panel-alt" style={{ padding: 10, marginBottom: 7, fontSize: 12, lineHeight: 1.6 }}>
@@ -1188,7 +1174,7 @@ export default function Generator() {
           <section className="bg-panel" style={panelStyle}>
             <div style={sectionHeaderStyle}>
               <h3 style={{ ...headingStyle, marginBottom: 0 }}>当前章节任务</h3>
-              <span style={{ color: bookPlan?.accepted ? '#72cf83' : '#c86e6e', fontSize: 12 }}>
+                  <span style={{ color: bookPlan?.accepted ? 'var(--success)' : 'var(--danger)', fontSize: 12 }}>
                 {bookPlan?.accepted ? '总体构想已接受' : '总体构想未接受'}
               </span>
             </div>
@@ -1272,14 +1258,14 @@ export default function Generator() {
               </PrimaryButton>
             </div>
             <details style={{ marginTop: 10 }}>
-              <summary style={{ cursor: 'pointer', color: '#8a8a9a', fontSize: 12 }}>高级选项</summary>
+              <summary style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12 }}>高级选项</summary>
               <div style={{ marginTop: 8 }}>
                 <PrimaryButton busy={busy === 'generate' || generationActive} disabled={Boolean(busy) || generationActive || !editorContent.trim() || !currentPlan} onClick={() => { void startChapter('continuation'); }}>
                   继续追加一段
                 </PrimaryButton>
               </div>
             </details>
-            {!bookPlan?.chapter_plans_complete && <p style={{ ...helpStyle, color: '#c86e6e' }}>按钮不可用：章节规划未完成，请先在“总体构想”页生成完整章节规划。</p>}
+              {!bookPlan?.chapter_plans_complete && <p style={{ ...helpStyle, color: 'var(--danger)' }}>按钮不可用：章节规划未完成，请先在“总体构想”页生成完整章节规划。</p>}
             {editingChapterPlan && currentPlan && (
               <div className="bg-panel-alt" style={{ padding: 12, marginTop: 12 }}>
                 <Field label="本章摘要">
@@ -1324,26 +1310,26 @@ export default function Generator() {
                 </PrimaryButton>
               </div>
             </div>
-            <input value={editorTitle} onChange={(event) => setEditorTitle(event.target.value)} style={{ ...wideStyle, marginBottom: 10, fontSize: 16 }} placeholder="章节标题" />
+            <input value={editorTitle} aria-label="章节标题" onChange={(event) => setEditorTitle(event.target.value)} style={{ ...wideStyle, marginBottom: 10, fontSize: 16 }} placeholder="章节标题" />
               <textarea value={editorContent} onChange={(event) => {
                 setEditorContent(event.target.value);
                 setAIReview(null);
                 setRepairCandidate(null);
                 setRevisionCandidate(null);
-              }} style={{ ...wideStyle, minHeight: 520, resize: 'vertical', lineHeight: 1.9 }} placeholder="生成后的章节草稿会显示在这里，也可以直接手工编辑。" />
+            }} className="creation-editor" aria-label="章节正文" style={wideStyle} placeholder="生成后的章节草稿会显示在这里，也可以直接手工编辑。" />
             <div className="bg-panel-alt" style={pathBoxStyle}>
               {editingOfficialId
                 ? `已保存到：${editorOfficialPath || `${PROJECT_ROOT}/official_chapters/${editingOfficialId}.md`}。再次保存会先在 ${PROJECT_ROOT}/revisions/ 创建版本快照。`
                 : `当前内容只是临时生成结果，尚未写入 ${PROJECT_ROOT}/official_chapters/。`}
             </div>
             {officialSaveBlockingReasons.length > 0 && editorContent.trim() && (
-              <div style={{ marginTop: 7, color: '#c86e6e', fontSize: 12 }}>
+                <div style={{ marginTop: 7, color: 'var(--danger)', fontSize: 12 }}>
                 暂不可保存：{officialSaveBlockingReasons.join('；')}
               </div>
             )}
             {completeness && (
               <div className="bg-panel-alt" style={{ padding: 12, marginTop: 10, fontSize: 12 }}>
-                <strong style={{ color: blockingCompletenessIssues.length > 0 ? '#c86e6e' : completenessWarnings.length > 0 ? '#c9a96e' : '#72cf83' }}>
+              <strong style={{ color: blockingCompletenessIssues.length > 0 ? 'var(--danger)' : completenessWarnings.length > 0 ? 'var(--warning)' : 'var(--success)' }}>
                   规则完整性检查：{
                     blockingCompletenessIssues.length > 0
                       ? '未通过，暂不可保存'
@@ -1358,14 +1344,14 @@ export default function Generator() {
                   const blocking = isBlockingCompletenessIssue(issue, completeness);
                   const level = issue.level === 'info' ? 'info' : blocking ? 'error' : 'warning';
                   return (
-                  <div key={`${issue.code}-${issue.message}`} style={{ color: level === 'error' ? '#c86e6e' : level === 'warning' ? '#c9a96e' : '#8a8a9a', marginTop: 5 }}>
+                  <div key={`${issue.code}-${issue.message}`} style={{ color: level === 'error' ? 'var(--danger)' : level === 'warning' ? 'var(--warning)' : 'var(--text-muted)', marginTop: 5 }}>
                     {level === 'error' ? '阻断' : level === 'warning' ? '提醒' : '信息'}：{issue.message}
                   </div>
                   );
                 })}
                 {blockingCompletenessIssues.length > 0 && (
                   <div style={{ marginTop: 8 }}>
-                    <div style={{ color: '#c86e6e', marginBottom: 7 }}>
+                <div style={{ color: 'var(--danger)', marginBottom: 7 }}>
                       禁用保存原因：{blockingCompletenessIssues.map((item) => item.message).join('；')}
                     </div>
                     <PrimaryButton busy={busy === 'revision' || revisionActive} disabled={Boolean(busy) || revisionActive || !editorGenerationId} onClick={() => { void autoRepairChapter(); }}>
@@ -1397,7 +1383,7 @@ export default function Generator() {
             {aiReview && (
               <div className="bg-panel-alt" style={{ padding: 12, marginTop: 10, fontSize: 12, lineHeight: 1.7 }}>
                 <div style={sectionHeaderStyle}>
-                  <strong style={{ color: aiReview.report_format === 'text' ? '#c9a96e' : (aiReview.overall_pass ? '#72cf83' : '#c86e6e') }}>
+                <strong style={{ color: aiReview.report_format === 'text' ? 'var(--warning)' : (aiReview.overall_pass ? 'var(--success)' : 'var(--danger)') }}>
                     {aiReview.report_format === 'text'
                       ? 'AI 深度质检完成 · 非结构化文本报告'
                       : `AI 深度质检：${aiReview.score} 分 · ${aiReview.overall_pass ? '语义审稿通过' : '建议修改'}`}
@@ -1405,7 +1391,7 @@ export default function Generator() {
                   <span style={subtleStyle}>{aiReview.model_name}</span>
                 </div>
                 {aiReview.parse_warning && (
-                  <div style={{ marginTop: 8, padding: 9, border: '1px solid #8a6b2f', color: '#e3bd69', background: '#2b2518' }}>
+                <div style={{ marginTop: 8, padding: 9, border: '1px solid var(--warning)', color: 'var(--warning)', background: 'var(--warning-soft)' }}>
                     {aiReview.parse_warning}
                   </div>
                 )}
@@ -1420,7 +1406,7 @@ export default function Generator() {
                 {aiReview.report_format !== 'text' && (
                   <>
                     {aiReview.semantic_overrides.map((item) => (
-                      <div key={item} style={{ color: '#72cf83', marginTop: 5 }}>{item}</div>
+                    <div key={item} style={{ color: 'var(--success)', marginTop: 5 }}>{item}</div>
                     ))}
                     <p><strong>摘要符合度：</strong>{aiReview.summary_alignment}</p>
                     <p><strong>结尾状态：</strong>{aiReview.ending_state_alignment}</p>
@@ -1429,11 +1415,11 @@ export default function Generator() {
                     <p><strong>人物一致性：</strong>{aiReview.character_consistency}</p>
                     <p><strong>文风一致性：</strong>{aiReview.style_consistency}</p>
                     <details>
-                      <summary style={{ cursor: 'pointer', color: '#c9a96e' }}>逐条查看情节点覆盖</summary>
+                  <summary style={{ cursor: 'pointer', color: 'var(--warning)' }}>逐条查看情节点覆盖</summary>
                       {aiReview.plot_beats_coverage.map((item) => (
-                        <div key={item.beat} style={{ marginTop: 7, color: item.covered ? '#72cf83' : '#c86e6e' }}>
+                      <div key={item.beat} style={{ marginTop: 7, color: item.covered ? 'var(--success)' : 'var(--danger)' }}>
                           {item.covered ? '已覆盖' : '未覆盖'}：{item.beat}<br />
-                          <span style={{ color: '#aaa' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>
                             {item.evidence ? `依据：${item.evidence}` : '未找到明确正文依据'}
                             {item.comment ? `；${item.comment}` : ''}
                           </span>
@@ -1441,13 +1427,13 @@ export default function Generator() {
                       ))}
                     </details>
                     {aiReview.problems.length > 0 && (
-                      <div style={{ marginTop: 9, color: '#c86e6e' }}>
+                <div style={{ marginTop: 9, color: 'var(--danger)' }}>
                         <strong>发现的问题：</strong>
                         {aiReview.problems.map((item) => <div key={item}>- {item}</div>)}
                       </div>
                     )}
                     {aiReview.repair_suggestions.length > 0 && (
-                      <div style={{ marginTop: 9, color: '#c9a96e' }}>
+                <div style={{ marginTop: 9, color: 'var(--warning)' }}>
                         <strong>修复建议：</strong>
                         {aiReview.repair_suggestions.map((item) => <div key={item}>- {item}</div>)}
                       </div>
@@ -1456,7 +1442,7 @@ export default function Generator() {
                 )}
                 {aiReview.raw_response && (
                   <details style={{ marginTop: 10 }}>
-                    <summary style={{ cursor: 'pointer', color: '#aaa' }}>查看模型原始返回</summary>
+                <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}>查看模型原始返回</summary>
                     <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 320, overflowY: 'auto', lineHeight: 1.65, fontFamily: 'inherit' }}>
                       {aiReview.raw_response}
                     </pre>
@@ -1484,7 +1470,7 @@ export default function Generator() {
             )}
             {repairCandidate && (
               <div className="bg-panel-alt" style={{ padding: 12, marginTop: 10, fontSize: 12 }}>
-                <strong style={{ color: '#c9a96e' }}>AI 修复候选版尚未应用</strong>
+              <strong style={{ color: 'var(--warning)' }}>AI 修复候选版尚未应用</strong>
                 <p>
                   {repairCandidate.result.word_count} 字；
                   规则检查{repairCandidate.completeness?.passed ? '通过' : '仍有问题'}。
@@ -1516,7 +1502,7 @@ export default function Generator() {
                 </select>
               </Field>
               {revisionMode === 'full_rewrite' && (
-                <div style={{ color: '#c9a96e', fontSize: 12, marginBottom: 9 }}>
+            <div style={{ color: 'var(--warning)', fontSize: 12, marginBottom: 9 }}>
                   整章重写会消耗更多模型输出，并可能产生较大改动。结果仍会先作为候选版，不会直接覆盖原文。
                 </div>
               )}
@@ -1540,7 +1526,7 @@ export default function Generator() {
               {revisionCandidate && (
                 <div className="bg-panel-alt" style={{ padding: 12, marginTop: 10, fontSize: 12 }}>
                   <div style={sectionHeaderStyle}>
-                    <strong style={{ color: revisionCandidate.result.revision_failed ? '#c86e6e' : '#c9a96e' }}>
+                <strong style={{ color: revisionCandidate.result.revision_failed ? 'var(--danger)' : 'var(--warning)' }}>
                       修改候选版 · {revisionCandidate.result.revision_change_level || '待审核'}
                     </strong>
                     <span style={subtleStyle}>
@@ -1553,7 +1539,7 @@ export default function Generator() {
                     保留比例：{Math.round(revisionCandidate.result.revision_change_ratio * 100)}%
                   </div>
                   {(revisionCandidate.result.warning || revisionCandidate.result.revision_requires_confirmation) && (
-                    <div style={{ color: revisionCandidate.result.revision_failed ? '#c86e6e' : '#c9a96e', marginTop: 7 }}>
+                <div style={{ color: revisionCandidate.result.revision_failed ? 'var(--danger)' : 'var(--warning)', marginTop: 7 }}>
                       {revisionCandidate.result.warning || '修改结果明显短于原文，请人工复核后再接受。'}
                     </div>
                   )}
@@ -1783,38 +1769,30 @@ function PrimaryButton({ busy, disabled, onClick, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <button className="btn-primary" disabled={disabled} onClick={onClick}>
-      {busy ? '处理中...' : children}
-    </button>
+    <Button variant="primary" loading={busy} disabled={disabled} onClick={onClick}>{children}</Button>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 10 }}>
-      <label style={{ display: 'block', marginBottom: 4, color: '#858596', fontSize: 12 }}>{label}</label>
+      <label style={{ display: 'block', marginBottom: 4, color: 'var(--text-secondary)', fontSize: 12 }}>{label}</label>
       {children}
     </div>
   );
 }
 
-function Banner({ color, background, children }: { color: string; background: string; children: React.ReactNode }) {
-  return <div style={{ color, background, padding: '9px 12px', borderRadius: 6, marginBottom: 10, fontSize: 12 }}>{children}</div>;
-}
-
-const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 };
-const tabBarStyle = { display: 'flex', gap: 8, marginBottom: 16, overflowX: 'auto' as const };
-const twoPanelStyle = { display: 'grid', gridTemplateColumns: 'minmax(320px, .8fr) minmax(540px, 1.2fr)', gap: 16, alignItems: 'start' };
-const twoColumnStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 };
-const threeColumnStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 };
+const twoPanelStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 430px), 1fr))', gap: 16, alignItems: 'start' };
+const twoColumnStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 10 };
+const threeColumnStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 210px), 1fr))', gap: 10 };
 const panelStyle = { padding: 18 };
 const headingStyle = { fontSize: 16, fontWeight: 600, margin: '0 0 12px' };
 const sectionHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 };
 const buttonRowStyle = { display: 'flex', gap: 8, flexWrap: 'wrap' as const };
 const wideStyle = { width: '100%' };
-const subtleStyle = { color: '#777788', fontSize: 12 };
-const helpStyle = { color: '#858596', fontSize: 12, lineHeight: 1.6 };
-const emptyStyle = { color: '#6f6f80', fontSize: 13 };
+const subtleStyle = { color: 'var(--text-muted)', fontSize: 12 };
+const helpStyle = { color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.6 };
+const emptyStyle = { color: 'var(--text-muted)', fontSize: 13 };
 const pathBoxStyle = { padding: 10, marginTop: 12, fontSize: 12, lineHeight: 1.65, wordBreak: 'break-all' as const };
-const listItemStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid #20202b' };
-const listTitleButtonStyle = { flex: 1, textAlign: 'left' as const, border: 0, background: 'transparent', color: '#d0d0d8', cursor: 'pointer', lineHeight: 1.5 };
+const listItemStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border-subtle)' };
+const listTitleButtonStyle = { flex: 1, textAlign: 'left' as const, border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', lineHeight: 1.5 };
