@@ -325,6 +325,28 @@ class IterateRequest(BaseModel):
 # --- Projects ---
 
 _PROJECT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{2,63}$")
+_SECRET_FIELD_NAMES = {
+    "api_key",
+    "authorization",
+    "password",
+    "secret",
+    "token",
+}
+
+
+def _reject_inline_secrets(value: dict) -> dict:
+    def inspect(item) -> None:
+        if isinstance(item, dict):
+            for key, nested in item.items():
+                if str(key).strip().lower() in _SECRET_FIELD_NAMES and nested:
+                    raise ValueError("项目配置只能保存模型配置引用，不能保存密钥值")
+                inspect(nested)
+        elif isinstance(item, list):
+            for nested in item:
+                inspect(nested)
+
+    inspect(value)
+    return value
 
 
 class ProjectType(str, Enum):
@@ -396,6 +418,11 @@ class ProjectCreateRequest(BaseModel):
     model_config_ref: dict = Field(default_factory=dict)
     metadata: dict = Field(default_factory=dict)
 
+    @field_validator("model_config_ref")
+    @classmethod
+    def reject_inline_model_secrets(cls, value: dict) -> dict:
+        return _reject_inline_secrets(value)
+
     @field_validator("project_id")
     @classmethod
     def validate_optional_project_id(cls, value: str | None) -> str | None:
@@ -417,6 +444,11 @@ class ProjectUpdateRequest(BaseModel):
     current_book_plan_id: str | None = None
     current_chapter_id: str | None = None
     metadata: dict | None = None
+
+    @field_validator("model_config_ref")
+    @classmethod
+    def reject_updated_inline_model_secrets(cls, value: dict | None) -> dict | None:
+        return _reject_inline_secrets(value) if value is not None else value
 
 
 class ProjectSummary(BaseModel):
@@ -534,15 +566,18 @@ class LongTaskStatus(str, Enum):
     PARTIAL_SUCCESS = "partial_success"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
 
 
 class TaskError(BaseModel):
     type: str
     message: str
+    error_code: str = "TASK_FAILED"
     http_status: int | None = None
     is_timeout: bool = False
     is_api_key_error: bool = False
     is_json_parse_error: bool = False
+    retryable: bool = False
 
 
 class LongTask(BaseModel):
@@ -570,6 +605,11 @@ class LongTask(BaseModel):
     partial_word_count: int = 0
     draft_id: str = ""
     can_accept: bool = False
+    timeout_seconds: int = 3600
+    deadline_at: datetime | None = None
+    attempt: int = 1
+    retry_of: str = ""
+    retry_available: bool = False
 
 
 class StyleAnalysisTaskRequest(BaseModel):

@@ -8,7 +8,12 @@ from threading import RLock
 from typing import Any
 
 from app.config import settings
-from app.services.file_ops import atomic_write_json, atomic_write_text
+from app.services.file_ops import (
+    atomic_write_json,
+    atomic_write_text,
+    read_json_with_recovery,
+    soft_delete,
+)
 from app.models.schemas import (
     ContinuityCheckResult,
     ContinuityIssue,
@@ -45,6 +50,7 @@ class DraftStore:
         self.generations_dir = self.root / "generations"
         self.versions_dir = self.root / "versions"
         self.exports_dir = self.root / "exports"
+        self.trash_dir = self.root / "trash"
         self._lock = RLock()
         self._ensure_project()
 
@@ -56,6 +62,7 @@ class DraftStore:
             self.generations_dir = self.root / "generations"
             self.versions_dir = self.root / "versions"
             self.exports_dir = self.root / "exports"
+            self.trash_dir = self.root / "trash"
             self._ensure_project()
 
     def _ensure_project(self) -> None:
@@ -65,6 +72,7 @@ class DraftStore:
             self.generations_dir,
             self.versions_dir,
             self.exports_dir,
+            self.trash_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
         if not self.manifest_path.exists():
@@ -83,7 +91,7 @@ class DraftStore:
     def _read_manifest(self) -> dict[str, Any]:
         self._ensure_project()
         try:
-            data = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+            data = read_json_with_recovery(self.manifest_path)
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"草稿工程 manifest 无法读取: {exc}") from exc
         if not isinstance(data.get("chapters"), list):
@@ -248,7 +256,7 @@ class DraftStore:
                 try:
                     versions.append(
                         DraftVersion.model_validate(
-                            json.loads(path.read_text(encoding="utf-8"))
+                            read_json_with_recovery(path)
                         )
                     )
                 except (OSError, json.JSONDecodeError, ValueError):
@@ -278,7 +286,7 @@ class DraftStore:
         if not path.exists():
             return None
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
+            value = read_json_with_recovery(path)
             return value if isinstance(value, dict) else None
         except (OSError, json.JSONDecodeError):
             return None
@@ -288,7 +296,7 @@ class DraftStore:
         with self._lock:
             for path in self.generations_dir.glob("gen_*.json"):
                 try:
-                    value = json.loads(path.read_text(encoding="utf-8"))
+                    value = read_json_with_recovery(path)
                     if isinstance(value, dict):
                         values.append(value)
                 except (OSError, json.JSONDecodeError):
@@ -309,7 +317,7 @@ class DraftStore:
         with self._lock:
             if not path.exists():
                 return False
-            path.unlink()
+            soft_delete(path, self.trash_dir / "generations")
             return True
 
     def check_continuity(self, draft_id: str) -> ContinuityCheckResult:

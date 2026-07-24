@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable
 from anthropic import Anthropic
 from app.config import settings
+from app.services.model_policy import anthropic_client_options
 from app.models.schemas import (
     Chapter,
     KnowledgeBase,
@@ -29,7 +30,7 @@ class KnowledgeBaseExtractor:
             Anthropic(
                 api_key=self._api_key,
                 base_url=base_url,
-                max_retries=0,
+                **anthropic_client_options("knowledge_build"),
             )
             if self._api_key
             else None

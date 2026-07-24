@@ -87,6 +87,7 @@ async def generate_book_plan(
         operation_type="book_plan_generate",
         target_id=request.source_anchor_chapter_id,
         user_visible_title="生成总体构想",
+        retry_payload=request.model_dump(mode="json"),
     )
     background_tasks.add_task(
         run_in_project,
@@ -151,6 +152,9 @@ async def complete_chapter_plans(
         operation_type="chapter_plans_complete",
         target_id=book_plan.book_plan_id,
         user_visible_title="生成完整章节规划",
+        retry_payload={
+            "book_plan_id": book_plan.book_plan_id,
+        },
     )
     background_tasks.add_task(
         run_in_project,
@@ -180,6 +184,7 @@ async def revise_current_book_plan(
         operation_type="book_plan_revision",
         target_id=book_plan.book_plan_id,
         user_visible_title="修改总体构想",
+        retry_payload={"feedback": request.feedback},
     )
     background_tasks.add_task(
         run_in_project,

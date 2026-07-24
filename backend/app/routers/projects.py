@@ -81,6 +81,7 @@ async def delete_project(
     _project_or_404(project_id)
     try:
         result = project_store.delete(project_id, confirm_project_id)
+        task_manager.archive_project(project_id)
         clear_project_runtime(project_id)
         return result
     except PermissionError as exc:

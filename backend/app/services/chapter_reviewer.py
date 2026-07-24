@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from anthropic import Anthropic
 
 from app.config import settings
+from app.services.model_policy import anthropic_client_options
 from app.models.schemas import (
     AIChapterReviewResult,
     BookPlan,
@@ -94,7 +95,7 @@ class ChapterReviewService:
             Anthropic(
                 api_key=settings.anthropic_api_key,
                 base_url=settings.anthropic_base_url or None,
-                max_retries=0,
+                **anthropic_client_options("chapter_review"),
             )
             if settings.anthropic_api_key
             else None

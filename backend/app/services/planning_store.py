@@ -8,7 +8,7 @@ from threading import RLock
 from typing import Any
 
 from app.config import settings
-from app.services.file_ops import atomic_write_json
+from app.services.file_ops import atomic_write_json, read_json_with_recovery
 from app.models.schemas import (
     BookPlan,
     BookPlanUpdate,
@@ -74,8 +74,8 @@ class PlanningStore:
         with self._lock:
             self._ensure_files()
             try:
-                return ProjectOutline.model_validate_json(
-                    self.outline_path.read_text(encoding="utf-8")
+                return ProjectOutline.model_validate(
+                    read_json_with_recovery(self.outline_path)
                 )
             except (OSError, ValueError) as exc:
                 raise RuntimeError(f"项目总纲无法读取: {exc}") from exc
@@ -96,7 +96,7 @@ class PlanningStore:
     def _read_plans(self) -> list[dict[str, Any]]:
         self._ensure_files()
         try:
-            value = json.loads(self.plans_path.read_text(encoding="utf-8"))
+            value = read_json_with_recovery(self.plans_path)
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"章节规划无法读取: {exc}") from exc
         return value if isinstance(value, list) else []
@@ -162,8 +162,8 @@ class PlanningStore:
             if not self.book_plan_path.exists():
                 return None
             try:
-                return BookPlan.model_validate_json(
-                    self.book_plan_path.read_text(encoding="utf-8")
+                return BookPlan.model_validate(
+                    read_json_with_recovery(self.book_plan_path)
                 )
             except (OSError, ValueError) as exc:
                 raise RuntimeError(f"全书规划无法读取: {exc}") from exc

@@ -13,6 +13,7 @@ import {
   getProjectStorageKey,
   getLongTask,
   getOfficialChapter,
+  getTempGeneration,
   getWritingProject,
   isApiNotFoundError,
   listChapterPlans,
@@ -43,8 +44,10 @@ import {
   type GenerationResult,
   type LongTask,
   type OfficialChapter,
+  type OfficialChapterSummary,
   type RevisionMode,
   type TempGeneration,
+  type TempGenerationSummary,
   type WritingProjectManifest,
 } from '../api';
 import TaskStatusPanel from '../components/TaskStatusPanel';
@@ -163,8 +166,8 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
   const [bookPlan, setBookPlan] = useState<BookPlan | null>(null);
   const [plans, setPlans] = useState<ChapterPlan[]>([]);
   const [manifest, setManifest] = useState<WritingProjectManifest | null>(null);
-  const [tempRecords, setTempRecords] = useState<TempGeneration[]>([]);
-  const [officialChapters, setOfficialChapters] = useState<OfficialChapter[]>([]);
+  const [tempRecords, setTempRecords] = useState<TempGenerationSummary[]>([]);
+  const [officialChapters, setOfficialChapters] = useState<OfficialChapterSummary[]>([]);
   const [selectedTemp, setSelectedTemp] = useState<TempGeneration | null>(null);
   const [selectedOfficial, setSelectedOfficial] = useState<OfficialChapter | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState(stored.selectedPlanId);
@@ -721,7 +724,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
       const record = records.find((item) => item.temp_id === tempId);
       if (!record) throw new Error('原始构想临时记录不存在');
       setTempRecords(records);
-      setSelectedTemp(record);
+      setSelectedTemp(await getTempGeneration(record.temp_id));
       setActiveTab('temp');
       setMessage(`原始构想已保存到：${record.file_path}`);
     });
@@ -994,7 +997,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
     setMessage(`已进入第 ${nextPlan.order} 章：${nextPlan.title}`);
   };
 
-  const openTempInEditor = async (record: TempGeneration) => {
+  const openTempInEditor = async (record: TempGenerationSummary) => {
     await runAction('load-temp', async () => {
       const loaded = await loadTempToEditor(record.temp_id);
       setSelectedTemp(loaded);
@@ -1025,7 +1028,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
     });
   };
 
-  const openOfficialInEditor = async (chapter: OfficialChapter) => {
+  const openOfficialInEditor = async (chapter: OfficialChapterSummary | OfficialChapter) => {
     await runAction('load-official', async () => {
       const record = await loadOfficialToEditor(chapter.chapter_id);
       setEditorTitle(chapter.title);
@@ -1047,7 +1050,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
     });
   };
 
-  const removeOfficial = async (chapter: OfficialChapter) => {
+  const removeOfficial = async (chapter: OfficialChapterSummary | OfficialChapter) => {
     if (!window.confirm(`确认删除正式章节《${chapter.title}》？`)) return;
     if (!window.confirm('这是第二次确认。删除后正式章节文件将被移除，是否继续？')) return;
     await runAction('delete-official', async () => {
@@ -1058,7 +1061,10 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
     });
   };
 
-  const downloadOfficial = async (chapter: OfficialChapter, format: 'md' | 'txt') => {
+  const downloadOfficial = async (
+    chapter: OfficialChapterSummary | OfficialChapter,
+    format: 'md' | 'txt',
+  ) => {
     await runAction('export', async () => {
       const blob = await exportOfficialChapter(chapter.chapter_id, format);
       const url = URL.createObjectURL(blob);
@@ -1715,7 +1721,11 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
                       </span>
                     </div>
                     <div style={buttonRowStyle}>
-                      <button onClick={() => setSelectedTemp(record)}>查看</button>
+                      <button onClick={() => {
+                        void runAction('view-temp', async () => {
+                          setSelectedTemp(await getTempGeneration(record.temp_id));
+                        });
+                      }}>查看</button>
                       <button disabled={record.record_type === 'book_plan'} onClick={() => { void openTempInEditor(record); }}>继续编辑</button>
                       <button className="btn-danger" onClick={() => {
                         if (!window.confirm('只删除这条临时记录？正式章节不会被删除。')) return;

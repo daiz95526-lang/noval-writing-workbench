@@ -89,6 +89,7 @@ class AcceptanceTests(unittest.TestCase):
         cls._original_project_root = draft_store.root
         cls._original_planning_root = planning_store.root
         cls._original_writing_root = writing_project_store.root
+        cls._original_task_storage_root = task_manager.storage_root
         cls._project_temp = tempfile.TemporaryDirectory()
         project_root = Path(cls._project_temp.name) / "longzu_continuation"
         draft_store.set_root(project_root)
@@ -96,6 +97,7 @@ class AcceptanceTests(unittest.TestCase):
         writing_project_store.set_root(
             Path(cls._project_temp.name) / "writing_projects" / "longzu6"
         )
+        task_manager.set_storage_root(Path(cls._project_temp.name) / "tasks")
         cls.client = TestClient(app)
         response = cls.client.post("/api/corpus/scan-local")
         assert response.status_code == 200, response.text
@@ -111,6 +113,8 @@ class AcceptanceTests(unittest.TestCase):
         draft_store.set_root(cls._original_project_root)
         planning_store.set_root(cls._original_planning_root)
         writing_project_store.set_root(cls._original_writing_root)
+        task_manager.clear()
+        task_manager.set_storage_root(cls._original_task_storage_root)
         cls._project_temp.cleanup()
 
     def test_config_status_is_safe_and_configured(self) -> None:
@@ -191,7 +195,7 @@ class AcceptanceTests(unittest.TestCase):
         ):
             response = self.client.post("/api/generation/generate", json=payload)
         self.assertEqual(response.status_code, 502)
-        self.assertIn("ConnectError", response.json()["detail"])
+        self.assertIn("ConnectError", response.json()["message"])
 
     def test_volumes_three_four_five_have_readable_content(self) -> None:
         chapters = self.client.get("/api/corpus/chapters").json()
@@ -243,7 +247,7 @@ class AcceptanceTests(unittest.TestCase):
                 },
             )
             self.assertEqual(generation.status_code, 400)
-            self.assertIn("API Key", generation.json()["detail"])
+            self.assertIn("API Key", generation.json()["message"])
         finally:
             settings.anthropic_api_key = original_key
 
@@ -783,7 +787,10 @@ class AcceptanceTests(unittest.TestCase):
         self.assertTrue(report.overall_pass)
         self.assertTrue(report.summary_aligned)
         self.assertTrue(report.semantic_overrides)
-        self.assertEqual(constructor_kwargs[0]["max_retries"], 0)
+        self.assertEqual(
+            constructor_kwargs[0]["max_retries"],
+            settings.model_max_retries,
+        )
 
     def test_ai_review_parser_accepts_json_markdown_and_reasoning_blocks(self) -> None:
         structured = {
@@ -1326,7 +1333,10 @@ class AcceptanceTests(unittest.TestCase):
 
             self.assertEqual(len(constructor_kwargs), 3)
             self.assertTrue(
-                all(item.get("max_retries") == 0 for item in constructor_kwargs)
+                all(
+                    item.get("max_retries") == settings.model_max_retries
+                    for item in constructor_kwargs
+                )
             )
         finally:
             settings.anthropic_api_key = original_key
@@ -1452,7 +1462,10 @@ class AcceptanceTests(unittest.TestCase):
         self.assertTrue(
             any("Prompt 字符数：" in message for message in progress_messages)
         )
-        self.assertEqual(constructor_kwargs[0]["max_retries"], 0)
+        self.assertEqual(
+            constructor_kwargs[0]["max_retries"],
+            settings.model_max_retries,
+        )
 
     def test_draft_project_lifecycle_uses_isolated_files(self) -> None:
         chapter = self.client.get("/api/corpus/chapters").json()[0]
@@ -1921,7 +1934,12 @@ class AcceptanceTests(unittest.TestCase):
         self.assertIn("[章节开头]", calls[0]["messages"][0]["content"])
         self.assertIn("[章节中段]", calls[0]["messages"][0]["content"])
         self.assertIn("[章节结尾]", calls[0]["messages"][0]["content"])
-        self.assertTrue(all(item["max_retries"] == 0 for item in constructor_kwargs))
+        self.assertTrue(
+            all(
+                item["max_retries"] == settings.model_max_retries
+                for item in constructor_kwargs
+            )
+        )
 
     def test_chapter_style_failure_is_skipped_with_warning(self) -> None:
         from app.routers.corpus import _corpus_store

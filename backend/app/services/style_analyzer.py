@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from anthropic import Anthropic
 from app.config import settings
+from app.services.model_policy import anthropic_client_options
 from app.services.file_ops import atomic_write_text
 from app.services.project_profile import get_project_profile
 from app.models.schemas import (
@@ -387,7 +388,7 @@ class StyleAnalyzer:
             self._client = Anthropic(
                 api_key=self._api_key,
                 base_url=base_url,
-                max_retries=0,
+                **anthropic_client_options("style_analysis"),
             )
         self._model = model or settings.anthropic_model
         configured_max_tokens = max_tokens or settings.style_model_max_tokens

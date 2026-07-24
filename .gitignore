@@ -30,6 +30,7 @@ dist/
 frontend/dist/
 .vite/
 frontend/.vite/
+frontend/.npm-cache/
 
 # Logs and temporary files
 *.log
@@ -81,4 +82,3 @@ writing_projects/*
 
 # Local development reports
 REPAIR_REPORT.md
-

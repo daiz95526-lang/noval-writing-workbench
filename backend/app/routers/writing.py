@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.models.schemas import (
@@ -129,6 +129,7 @@ async def start_ai_chapter_review(
         },
         target_id=plan.plan_id,
         user_visible_title=f"质检第 {plan.order} 章",
+        retry_payload=request.model_dump(mode="json"),
     )
     background_tasks.add_task(
         run_in_project,
@@ -159,6 +160,7 @@ async def start_ai_chapter_repair(
         },
         target_id=plan.plan_id,
         user_visible_title=f"修复第 {plan.order} 章",
+        retry_payload=request.model_dump(mode="json"),
     )
     background_tasks.add_task(
         run_in_project,
@@ -238,6 +240,29 @@ async def list_temp_generations() -> list[TempGeneration]:
     return writing_project_store.list_temp_generations()
 
 
+@router.get("/temp-generations/page")
+async def list_temp_generations_page(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict:
+    records = writing_project_store.list_temp_generations()
+    total = len(records)
+    items = [
+        record.model_dump(
+            mode="json",
+            exclude={"content", "generation_request"},
+        )
+        for record in records[offset : offset + limit]
+    ]
+    return {
+        "items": items,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
+
+
 @router.get("/temp-generations/{temp_id}")
 async def get_temp_generation(temp_id: str) -> TempGeneration:
     try:
@@ -282,6 +307,29 @@ async def load_temp_to_editor(temp_id: str) -> TempGeneration:
 @router.get("/official-chapters")
 async def list_official_chapters() -> list[OfficialChapter]:
     return writing_project_store.list_official_chapters()
+
+
+@router.get("/official-chapters/page")
+async def list_official_chapters_page(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict:
+    chapters = writing_project_store.list_official_chapters()
+    total = len(chapters)
+    items = [
+        chapter.model_dump(
+            mode="json",
+            exclude={"content", "chapter_plan_snapshot"},
+        )
+        for chapter in chapters[offset : offset + limit]
+    ]
+    return {
+        "items": items,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
 
 
 @router.get("/official-chapters/{chapter_id}")

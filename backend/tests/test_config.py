@@ -91,3 +91,24 @@ def test_invalid_port_and_origins_fall_back_with_warnings() -> None:
     assert any("PORT" in item for item in settings.config_warnings)
     assert any("FRONTEND_ORIGINS" in item for item in settings.config_warnings)
     assert any("DATA_DIR" in item for item in settings.config_warnings)
+
+
+def test_phase5_reliability_settings_are_bounded_and_wildcard_cors_is_rejected() -> None:
+    settings = build_settings(
+        {
+            "FRONTEND_ORIGINS": "*",
+            "TASK_TIMEOUT_SECONDS": "5",
+            "TASK_HISTORY_LIMIT": "9000",
+            "UPLOAD_MAX_BYTES": "10",
+            "MODEL_MAX_RETRIES": "99",
+            "LOG_LEVEL": "verbose",
+        }
+    )
+
+    assert settings.frontend_origins == DEFAULT_FRONTEND_ORIGINS
+    assert settings.task_timeout_seconds == 3600
+    assert settings.task_history_limit == 500
+    assert settings.upload_max_bytes == 10 * 1024 * 1024
+    assert settings.model_max_retries == 2
+    assert settings.log_level == "INFO"
+    assert len(settings.config_warnings) == 6

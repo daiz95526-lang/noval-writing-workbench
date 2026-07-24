@@ -8,7 +8,12 @@ from threading import RLock
 from typing import Any
 
 from app.config import settings
-from app.services.file_ops import atomic_write_json, atomic_write_text
+from app.services.file_ops import (
+    atomic_write_json,
+    atomic_write_text,
+    read_json_with_recovery,
+    soft_delete,
+)
 from app.models.schemas import (
     BookPlan,
     GenerationResult,
@@ -55,6 +60,7 @@ class WritingProjectStore:
             self.temp_dir = self.root / "temp_generations"
             self.revisions_dir = self.root / "revisions"
             self.exports_dir = self.root / "exports"
+            self.trash_dir = self.root / "trash"
             self.manifest_path = self.root / "manifest.json"
             self._ensure_project()
 
@@ -66,6 +72,7 @@ class WritingProjectStore:
             self.temp_dir,
             self.revisions_dir,
             self.exports_dir,
+            self.trash_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
         if not self.manifest_path.exists():
@@ -103,8 +110,8 @@ class WritingProjectStore:
         with self._lock:
             self._ensure_project()
             try:
-                return WritingProjectManifest.model_validate_json(
-                    self.manifest_path.read_text(encoding="utf-8")
+                return WritingProjectManifest.model_validate(
+                    read_json_with_recovery(self.manifest_path)
                 )
             except (OSError, ValueError) as exc:
                 raise RuntimeError(f"写作项目 manifest 无法读取: {exc}") from exc
@@ -147,7 +154,7 @@ class WritingProjectStore:
         if not path.exists():
             return None
         try:
-            return BookPlan.model_validate_json(path.read_text(encoding="utf-8"))
+            return BookPlan.model_validate(read_json_with_recovery(path))
         except (OSError, ValueError) as exc:
             raise RuntimeError(f"总体构想文件无法读取: {exc}") from exc
 
@@ -352,7 +359,7 @@ class WritingProjectStore:
         for path in paths:
             try:
                 values.append(
-                    TempGeneration.model_validate_json(path.read_text(encoding="utf-8"))
+                    TempGeneration.model_validate(read_json_with_recovery(path))
                 )
             except (OSError, ValueError):
                 continue
@@ -363,7 +370,7 @@ class WritingProjectStore:
         path = self.temp_dir / f"{safe_id}.json"
         if not path.exists():
             raise KeyError(temp_id)
-        return TempGeneration.model_validate_json(path.read_text(encoding="utf-8"))
+        return TempGeneration.model_validate(read_json_with_recovery(path))
 
     def attach_generation_metadata(
         self,
@@ -403,12 +410,14 @@ class WritingProjectStore:
         with self._lock:
             if not path.exists():
                 return False
-            record = TempGeneration.model_validate_json(
-                path.read_text(encoding="utf-8")
+            record = TempGeneration.model_validate(
+                read_json_with_recovery(path)
             )
-            path.unlink()
+            soft_delete(path, self.trash_dir / "temp_generations")
             if record.record_type == "book_plan_raw":
-                (self.temp_dir / f"{safe_id}.md").unlink(missing_ok=True)
+                raw_path = self.temp_dir / f"{safe_id}.md"
+                if raw_path.exists():
+                    soft_delete(raw_path, self.trash_dir / "temp_generations")
             self._update_manifest()
             return True
 
@@ -510,9 +519,7 @@ class WritingProjectStore:
         values = []
         for path in self.official_dir.glob("chapter_*.json"):
             try:
-                meta = OfficialChapter.model_validate_json(
-                    path.read_text(encoding="utf-8")
-                )
+                meta = OfficialChapter.model_validate(read_json_with_recovery(path))
                 values.append(meta)
             except (OSError, ValueError):
                 continue
@@ -524,7 +531,7 @@ class WritingProjectStore:
         text_path = self.official_dir / f"{safe_id}.md"
         if not meta_path.exists() or not text_path.exists():
             raise KeyError(chapter_id)
-        meta = OfficialChapter.model_validate_json(meta_path.read_text(encoding="utf-8"))
+        meta = OfficialChapter.model_validate(read_json_with_recovery(meta_path))
         raw = text_path.read_text(encoding="utf-8")
         content = re.sub(r"^# .+?\r?\n\r?\n", "", raw, count=1).rstrip()
         return meta.model_copy(update={"content": content})
@@ -543,8 +550,10 @@ class WritingProjectStore:
         with self._lock:
             if not meta_path.exists() and not text_path.exists():
                 return False
-            meta_path.unlink(missing_ok=True)
-            text_path.unlink(missing_ok=True)
+            if meta_path.exists():
+                soft_delete(meta_path, self.trash_dir / "official_chapters")
+            if text_path.exists():
+                soft_delete(text_path, self.trash_dir / "official_chapters")
             self._update_manifest()
             return True
 

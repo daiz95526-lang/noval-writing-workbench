@@ -1,9 +1,10 @@
 import hashlib
 import re
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from app.config import settings
 from app.models.schemas import Chapter, CorpusStats, CorpusStatus, ChapterMeta, ImportReport
-from app.services.file_ops import atomic_write_text
+from app.services.file_ops import atomic_write_text, soft_delete
 from app.services.project_context import ProjectScopedDict, get_current_project_id
 from app.services.project_paths import get_project_paths
 
@@ -102,6 +103,32 @@ async def list_chapters(volume: str = "") -> list[ChapterMeta]:
     return chapters
 
 
+@router.get("/chapters/page")
+async def list_chapters_page(
+    volume: str = "",
+    query: str = "",
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict:
+    chapters = await list_chapters(volume)
+    normalized = query.strip().casefold()
+    if normalized:
+        chapters = [
+            chapter
+            for chapter in chapters
+            if normalized in chapter.title.casefold()
+            or normalized in chapter.chapter_id.casefold()
+        ]
+    total = len(chapters)
+    return {
+        "items": chapters[offset : offset + limit],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
+
+
 @router.get("/chapters/{chapter_id}")
 async def get_chapter(chapter_id: str) -> Chapter:
     _ensure_loaded()
@@ -113,7 +140,27 @@ async def get_chapter(chapter_id: str) -> Chapter:
 @router.post("/chapters/upload")
 async def upload_chapter(file: UploadFile = File(...)):
     _ensure_loaded()
-    raw = await file.read()
+    filename = (file.filename or "").strip()
+    if (
+        not filename
+        or "\x00" in filename
+        or "/" in filename
+        or "\\" in filename
+        or Path(filename).suffix.lower() != ".txt"
+    ):
+        raise HTTPException(415, "仅支持文件名安全的 .txt 纯文本语料")
+    content_type = (file.content_type or "").lower()
+    if content_type and not (
+        content_type.startswith("text/")
+        or content_type == "application/octet-stream"
+    ):
+        raise HTTPException(415, "上传内容必须是纯文本文件")
+    raw = await file.read(settings.upload_max_bytes + 1)
+    if len(raw) > settings.upload_max_bytes:
+        raise HTTPException(
+            413,
+            f"文件超过 {settings.upload_max_bytes // (1024 * 1024)} MiB 上传上限",
+        )
     content = ""
     for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
         try:
@@ -123,6 +170,8 @@ async def upload_chapter(file: UploadFile = File(...)):
             continue
     if not content.strip():
         raise HTTPException(400, "文件为空或编码无法识别")
+    if "\x00" in content:
+        raise HTTPException(400, "文本包含无效的空字节")
 
     normalized = re.sub(r"\s+", "", content)
     content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
@@ -138,10 +187,10 @@ async def upload_chapter(file: UploadFile = File(...)):
         volume_key="manual",
         volume_display_name="手动上传",
         chapter_order=manual_order,
-        title=Path(file.filename or cid).stem,
+        title=Path(filename).stem[:200],
         word_count=len(normalized),
         dialogue_ratio=0.0,
-        source_file=f"manual/{file.filename or cid}",
+        source_file=f"manual/{filename}",
         content_hash=content_hash,
         content=content,
         status=CorpusStatus.PROCESSED,
@@ -161,7 +210,8 @@ async def delete_chapter(chapter_id: str):
     del _corpus_store[chapter_id]
     path = _chapter_path(chapter_id)
     if path.exists():
-        path.unlink()
+        paths = get_project_paths()
+        soft_delete(path, paths.processed.parent / "trash" / "processed")
     from app.services.local_importer import save_meta_index
     save_meta_index(_corpus_store)
     return {"deleted": chapter_id}

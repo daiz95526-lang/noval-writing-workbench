@@ -1,17 +1,37 @@
-from fastapi import FastAPI
+import logging
+import re
+import time
+import uuid
+
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.errors import (
+    AppError,
+    app_error_handler,
+    error_response,
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
+from app.logging_config import configure_logging, log_context
 from app.routers import analysis, corpus, drafts, generation, planning, projects, tasks, writing
 from app.services.project_context import use_project
 from app.services.project_store import project_store
 
+configure_logging()
+logger = logging.getLogger("noval.requests")
 app = FastAPI(
     title="NOVAL - 本地优先的 AI 长篇写作工作台",
     description="本地小说语料分析、规划、续写、章节管理与导出工作台",
     version="0.1.0",
 )
+app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,22 +44,54 @@ app.add_middleware(
 
 @app.middleware("http")
 async def project_context_middleware(request, call_next):
+    supplied_request_id = request.headers.get("X-Request-ID", "").strip()
+    request_id = (
+        supplied_request_id
+        if re.fullmatch(r"[A-Za-z0-9._-]{8,64}", supplied_request_id)
+        else uuid.uuid4().hex
+    )
     requested_project_id = (
         request.headers.get("X-Project-ID", "").strip()
         or request.query_params.get("project_id", "").strip()
     )
     project_id = requested_project_id or settings.project_id
-    if requested_project_id:
-        try:
-            project_store.get(project_id)
-        except KeyError:
-            return JSONResponse(status_code=404, content={"detail": "项目不存在"})
-        except ValueError as exc:
-            return JSONResponse(status_code=400, content={"detail": str(exc)})
-        except RuntimeError as exc:
-            return JSONResponse(status_code=409, content={"detail": str(exc)})
-    with use_project(project_id):
-        response = await call_next(request)
+    operation = f"{request.method} {request.url.path}"
+    started = time.perf_counter()
+    with log_context(
+        request_id=request_id,
+        project_id=project_id,
+        operation=operation,
+    ):
+        if requested_project_id:
+            try:
+                project_store.get(project_id)
+            except KeyError:
+                response = error_response(404, "PROJECT_NOT_FOUND", "项目不存在")
+            except ValueError as exc:
+                response = error_response(400, "INVALID_PROJECT_ID", str(exc))
+            except RuntimeError as exc:
+                response = error_response(409, "PROJECT_UNAVAILABLE", str(exc))
+            else:
+                with use_project(project_id):
+                    try:
+                        response = await call_next(request)
+                    except Exception as exc:
+                        response = await unhandled_exception_handler(request, exc)
+        else:
+            with use_project(project_id):
+                try:
+                    response = await call_next(request)
+                except Exception as exc:
+                    response = await unhandled_exception_handler(request, exc)
+        duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        logger.info(
+            "request_completed",
+            extra={
+                "duration_ms": duration_ms,
+                "status_code": response.status_code,
+            },
+        )
+    response.headers["X-Request-ID"] = request_id
     response.headers["X-NOVAL-Project-ID"] = project_id
     return response
 

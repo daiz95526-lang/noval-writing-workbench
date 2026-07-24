@@ -24,7 +24,7 @@ from app.models.schemas import (
     ProjectType,
     ProjectUpdateRequest,
 )
-from app.services.file_ops import atomic_write_json, safe_child
+from app.services.file_ops import atomic_write_json, read_json_with_recovery, safe_child
 
 
 def _now() -> datetime:
@@ -290,8 +290,8 @@ class ProjectStore:
             if self.root.exists():
                 for manifest in sorted(self.root.glob("*/project.json")):
                     try:
-                        project = Project.model_validate_json(
-                            manifest.read_text(encoding="utf-8")
+                        project = Project.model_validate(
+                            read_json_with_recovery(manifest)
                         )
                     except (OSError, ValueError):
                         continue
@@ -316,7 +316,7 @@ class ProjectStore:
         if not manifest.is_file():
             raise KeyError(validated)
         try:
-            return Project.model_validate_json(manifest.read_text(encoding="utf-8"))
+            return Project.model_validate(read_json_with_recovery(manifest))
         except (OSError, ValueError) as exc:
             raise RuntimeError(f"项目清单无法读取: {validated}") from exc
 

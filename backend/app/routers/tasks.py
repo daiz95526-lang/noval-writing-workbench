@@ -6,6 +6,9 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from app.config import settings
 from app.models.schemas import (
+    AIChapterRepairRequest,
+    AIChapterReviewRequest,
+    BookPlanGenerateRequest,
     GenerationRequest,
     GenerationResult,
     IterateRequest,
@@ -44,8 +47,17 @@ def _progress(task_id: str):
 
 
 @router.get("")
-async def list_tasks(limit: int = Query(50, ge=1, le=200)) -> list[LongTask]:
-    return task_manager.list(limit, project_id=get_current_project_id())
+async def list_tasks(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    status: LongTaskStatus | None = None,
+) -> list[LongTask]:
+    return task_manager.list(
+        limit,
+        project_id=get_current_project_id(),
+        offset=offset,
+        status=status,
+    )
 
 
 @router.get("/{task_id}")
@@ -57,6 +69,92 @@ async def get_task(task_id: str) -> LongTask:
 async def cancel_task(task_id: str) -> LongTask:
     _task_or_404(task_id)
     return task_manager.cancel(task_id, project_id=get_current_project_id())
+
+
+@router.post("/{task_id}/retry")
+async def retry_task(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+) -> LongTask:
+    original = _task_or_404(task_id)
+    try:
+        task, payload = task_manager.clone_for_retry(
+            task_id,
+            get_current_project_id(),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    operation = original.operation_type
+    runner = None
+    args: tuple = ()
+    try:
+        if operation == TaskType.STYLE_ANALYSIS.value:
+            request = StyleAnalysisTaskRequest.model_validate(payload)
+            runner, args = _run_style_analysis, (request.chapter_id,)
+        elif operation == TaskType.KNOWLEDGE_BUILD.value:
+            request = KnowledgeBuildTaskRequest.model_validate(payload)
+            runner, args = _run_knowledge_build, (
+                request.selected_chapter_id,
+                request.summary_only,
+            )
+        elif operation == TaskType.GENERATION.value:
+            request = GenerationRequest.model_validate(payload)
+            runner, args = _run_generation, (request,)
+        elif operation == TaskType.REVISION.value:
+            request = IterateRequest.model_validate(payload)
+            runner, args = _run_revision, (request,)
+        elif operation == "book_plan_generate":
+            from app.routers import planning as planning_router
+
+            request = BookPlanGenerateRequest.model_validate(payload)
+            runner, args = planning_router._run_book_plan, (request,)
+        elif operation == "chapter_plans_complete":
+            from app.routers import planning as planning_router
+            from app.services.planning_store import planning_store
+
+            book_plan = planning_store.get_book_plan()
+            if book_plan is None:
+                raise ValueError("总体构想不存在，无法重试章节规划")
+            runner, args = planning_router._run_complete_chapter_plans, (book_plan,)
+        elif operation == "book_plan_revision":
+            from app.routers import planning as planning_router
+            from app.services.planning_store import planning_store
+
+            book_plan = planning_store.get_book_plan()
+            if book_plan is None:
+                raise ValueError("总体构想不存在，无法重试修改")
+            feedback = str(payload.get("feedback") or "").strip()
+            if not feedback:
+                raise ValueError("历史修改要求为空，无法重试")
+            runner, args = planning_router._run_book_plan_revision, (
+                book_plan,
+                feedback,
+            )
+        elif operation == TaskType.CHAPTER_REVIEW.value:
+            from app.routers import writing as writing_router
+
+            request = AIChapterReviewRequest.model_validate(payload)
+            runner, args = writing_router._run_ai_chapter_review, (request,)
+        elif operation == TaskType.CHAPTER_REPAIR.value:
+            from app.routers import writing as writing_router
+
+            request = AIChapterRepairRequest.model_validate(payload)
+            runner, args = writing_router._run_ai_chapter_repair, (request,)
+        else:
+            raise ValueError("该任务类型暂不支持自动重试")
+    except Exception as exc:
+        task_manager.fail(task.task_id, exc)
+        raise HTTPException(409, str(exc)) from exc
+
+    background_tasks.add_task(
+        run_in_project,
+        task.project_id,
+        runner,
+        task.task_id,
+        *args,
+    )
+    return task
 
 
 @router.post("/style-analysis/start")
@@ -77,6 +175,7 @@ async def start_style_analysis(
         },
         target_id=request.chapter_id,
         user_visible_title=f"分析《{chapter.title}》的写作风格",
+        retry_payload=request.model_dump(mode="json"),
     )
     background_tasks.add_task(
         run_in_project,
@@ -110,6 +209,7 @@ async def start_knowledge_build(
         },
         target_id=request.selected_chapter_id or "corpus",
         user_visible_title="构建项目知识库",
+        retry_payload=request.model_dump(mode="json"),
     )
     background_tasks.add_task(
         run_in_project,
@@ -183,9 +283,11 @@ async def start_generation(
         },
         target_id=request.plan_id or request.start_chapter_id,
         user_visible_title="生成完整章节",
+        retry_payload=request.model_dump(mode="json"),
     )
     task.total_segments = total_segments
     task.draft_id = request.draft_id
+    task_manager.update(task.task_id)
     background_tasks.add_task(
         run_in_project,
         task.project_id,
@@ -216,6 +318,7 @@ async def start_revision(
         },
         target_id=request.generation_id,
         user_visible_title="修改章节候选稿",
+        retry_payload=request.model_dump(mode="json"),
     )
     background_tasks.add_task(
         run_in_project,

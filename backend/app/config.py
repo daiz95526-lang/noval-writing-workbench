@@ -77,8 +77,18 @@ class Settings(BaseModel):
     allowed_external_corpus_roots: tuple[Path, ...] = ()
     continuation_project_dir: Path = DEFAULT_CONTINUATION_PROJECT_DIR
     writing_project_dir: Path = DEFAULT_WRITING_PROJECT_DIR
+    task_storage_dir: Path = DEFAULT_DATA_DIR / "tasks"
+    log_dir: Path = DEFAULT_DATA_DIR / "logs"
 
     max_chapter_length: int = 20000
+    task_timeout_seconds: int = 3600
+    task_history_limit: int = 500
+    upload_max_bytes: int = 10 * 1024 * 1024
+    model_max_retries: int = 2
+    log_level: str = "INFO"
+    log_max_bytes: int = 5 * 1024 * 1024
+    log_backup_count: int = 5
+    log_include_paths: bool = False
     config_warnings: list[str] = Field(default_factory=list)
 
 
@@ -169,6 +179,23 @@ def _get_int(
     return value
 
 
+def _get_bool(
+    env: Mapping[str, Any],
+    name: str,
+    default: bool,
+    warnings: list[str],
+) -> bool:
+    raw = _env_value(env, name).lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    warnings.append(f"{name} must be true or false; using {default}.")
+    return default
+
+
 def _get_frontend_origins(
     env: Mapping[str, Any],
     name: str,
@@ -189,7 +216,7 @@ def _get_frontend_origins(
     invalid = [
         item
         for item in origins
-        if item != "*" and not item.startswith(("http://", "https://"))
+        if item == "*" or not item.startswith(("http://", "https://"))
     ]
     if invalid:
         warnings.append(
@@ -283,6 +310,76 @@ def build_settings(env: Mapping[str, Any] | None = None) -> Settings:
         env,
         "WRITING_PROJECT_DIR",
         DEFAULT_WRITING_PROJECT_DIR,
+        warnings,
+    )
+    settings.task_storage_dir = _get_path(
+        env,
+        "TASK_STORAGE_DIR",
+        settings.data_dir / "tasks",
+        warnings,
+    )
+    settings.log_dir = _get_path(
+        env,
+        "LOG_DIR",
+        settings.data_dir / "logs",
+        warnings,
+    )
+    settings.task_timeout_seconds = _get_int(
+        env,
+        "TASK_TIMEOUT_SECONDS",
+        settings.task_timeout_seconds,
+        warnings,
+        minimum=30,
+        maximum=86400,
+    )
+    settings.task_history_limit = _get_int(
+        env,
+        "TASK_HISTORY_LIMIT",
+        settings.task_history_limit,
+        warnings,
+        minimum=10,
+        maximum=5000,
+    )
+    settings.upload_max_bytes = _get_int(
+        env,
+        "UPLOAD_MAX_BYTES",
+        settings.upload_max_bytes,
+        warnings,
+        minimum=1024,
+        maximum=100 * 1024 * 1024,
+    )
+    settings.model_max_retries = _get_int(
+        env,
+        "MODEL_MAX_RETRIES",
+        settings.model_max_retries,
+        warnings,
+        minimum=0,
+        maximum=5,
+    )
+    settings.log_level = _get_text(env, "LOG_LEVEL", settings.log_level).upper()
+    if settings.log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        warnings.append("LOG_LEVEL is invalid; using INFO.")
+        settings.log_level = "INFO"
+    settings.log_max_bytes = _get_int(
+        env,
+        "LOG_MAX_BYTES",
+        settings.log_max_bytes,
+        warnings,
+        minimum=64 * 1024,
+        maximum=100 * 1024 * 1024,
+    )
+    settings.log_backup_count = _get_int(
+        env,
+        "LOG_BACKUP_COUNT",
+        settings.log_backup_count,
+        warnings,
+        minimum=1,
+        maximum=50,
+    )
+    settings.log_include_paths = _get_bool(
+        env,
+        "LOG_INCLUDE_PATHS",
+        settings.log_include_paths,
         warnings,
     )
     settings.config_warnings = warnings

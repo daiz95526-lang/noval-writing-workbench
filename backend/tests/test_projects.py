@@ -15,9 +15,12 @@ from app.models.schemas import (
     AnalysisDimension,
     BookPlan,
     BookPlanChapter,
+    Chapter,
+    CorpusStatus,
     DimensionResult,
     PlotBeatReview,
     TaskType,
+    TempGenerationCreate,
 )
 from app.routers.analysis import _style_profiles
 from app.routers.generation import _generation_results
@@ -30,11 +33,13 @@ from app.services.preprocessor import TextPreprocessor
 from app.services.project_runtime import clear_project_runtime
 from app.services.project_store import project_store
 from app.services.task_manager import task_manager
+from app.services.writing_project_store import writing_project_store
 
 
 @pytest.fixture
 def isolated_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     original_root = project_store.root
+    original_task_storage_root = task_manager.storage_root
     legacy_data = tmp_path / "legacy-data"
     legacy_source = legacy_data / "books" / "legacy" / "source_txt"
     legacy_processed = legacy_data / "processed"
@@ -54,6 +59,7 @@ def isolated_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "continuation_project_dir", legacy_planning)
     monkeypatch.setattr(settings, "writing_project_dir", legacy_writing)
     project_store.set_root(settings.projects_dir)
+    task_manager.set_storage_root(tmp_path / "tasks")
 
     yield {
         "root": tmp_path,
@@ -70,6 +76,7 @@ def isolated_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         for manifest in project_store.root.glob("*/project.json"):
             clear_project_runtime(manifest.parent.name)
     task_manager.clear()
+    task_manager.set_storage_root(original_task_storage_root)
     project_store.set_root(original_root)
 
 
@@ -298,6 +305,16 @@ def test_invalid_project_ids_and_path_traversal_are_rejected(
     assert client.get(
         "/api/health", headers={"X-Project-ID": "missing_project"}
     ).status_code == 404
+    inline_secret = client.post(
+        "/api/projects",
+        json={
+            "project_id": "secret_project",
+            "title": "密钥校验",
+            "model_config_ref": {"api_key": "must-not-be-stored"},
+        },
+    )
+    assert inline_secret.status_code == 422
+    assert "must-not-be-stored" not in inline_secret.text
 
 
 def test_external_corpus_requires_an_explicit_allowed_root(
@@ -320,7 +337,7 @@ def test_external_corpus_requires_an_explicit_allowed_root(
         },
     )
     assert rejected.status_code == 400
-    assert "EXTERNAL_CORPUS_ROOTS" in rejected.json()["detail"]
+    assert "EXTERNAL_CORPUS_ROOTS" in rejected.json()["message"]
 
     monkeypatch.setattr(settings, "allowed_external_corpus_roots", (external,))
     accepted = client.post(
@@ -337,6 +354,115 @@ def test_external_corpus_requires_an_explicit_allowed_root(
     assert accepted.status_code == 201, accepted.text
     with use_project("external_allowed"):
         assert get_project_paths().source == external.resolve()
+
+
+def test_upload_limits_error_envelope_and_soft_delete(
+    isolated_projects,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = TestClient(app)
+    project_id = "upload_security"
+    _create_project(client, project_id, "上传安全测试")
+    headers = _project_headers(project_id)
+    monkeypatch.setattr(settings, "upload_max_bytes", 16)
+
+    invalid_type = client.post(
+        "/api/corpus/chapters/upload",
+        headers=headers,
+        files={"file": ("notes.md", b"plain text", "text/markdown")},
+    )
+    assert invalid_type.status_code == 415
+    assert invalid_type.json()["error_code"] == "UNSUPPORTED_MEDIA_TYPE"
+    assert invalid_type.json()["request_id"]
+    assert invalid_type.headers["X-Request-ID"] == invalid_type.json()["request_id"]
+
+    oversized = client.post(
+        "/api/corpus/chapters/upload",
+        headers=headers,
+        files={"file": ("chapter.txt", b"x" * 17, "text/plain")},
+    )
+    assert oversized.status_code == 413
+    assert oversized.json()["error_code"] == "UPLOAD_TOO_LARGE"
+
+    uploaded = client.post(
+        "/api/corpus/chapters/upload",
+        headers=headers,
+        files={"file": ("chapter.txt", b"original text", "text/plain")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    chapter_id = uploaded.json()["chapter_id"]
+    deleted = client.delete(f"/api/corpus/chapters/{chapter_id}", headers=headers)
+    assert deleted.status_code == 200
+    trash = project_store.layout(project_id).corpus / "trash" / "processed"
+    assert list(trash.glob(f"{chapter_id}.txt.*"))
+
+    validation = client.post(
+        "/api/projects",
+        json={"project_id": "../escape", "title": "非法项目"},
+    )
+    assert validation.status_code == 422
+    assert set(validation.json()) == {
+        "error_code",
+        "message",
+        "details",
+        "request_id",
+        "retryable",
+    }
+    assert "input" not in json.dumps(validation.json(), ensure_ascii=False)
+
+
+def test_large_project_uses_paginated_metadata_and_history_summaries(
+    isolated_projects,
+) -> None:
+    client = TestClient(app)
+    project_id = "large_project"
+    _create_project(client, project_id, "大项目分页测试")
+    headers = _project_headers(project_id)
+
+    from app.routers.corpus import _corpus_store, _loaded_projects
+
+    with use_project(project_id):
+        for index in range(350):
+            chapter_id = f"chapter-{index:04d}"
+            _corpus_store[chapter_id] = Chapter(
+                chapter_id=chapter_id,
+                series_order=1,
+                volume_key="volume-1",
+                volume_display_name="第一卷",
+                chapter_order=index + 1,
+                title=f"原创章节 {index + 1}",
+                word_count=8000,
+                content="原创正文",
+                status=CorpusStatus.PROCESSED,
+            )
+        _loaded_projects.add(project_id)
+        for index in range(20):
+            writing_project_store.create_temp_generation(
+                TempGenerationCreate(
+                    chapter_order=index + 1,
+                    chapter_title=f"候选章 {index + 1}",
+                    content="仅用于性能测试的原创文本。" * 800,
+                )
+            )
+
+    page = client.get(
+        "/api/corpus/chapters/page?offset=100&limit=100",
+        headers=headers,
+    )
+    assert page.status_code == 200
+    assert page.json()["total"] == 350
+    assert len(page.json()["items"]) == 100
+    assert page.json()["has_more"] is True
+
+    history = client.get(
+        "/api/temp-generations/page?offset=0&limit=10",
+        headers=headers,
+    )
+    assert history.status_code == 200
+    assert history.json()["total"] == 20
+    assert len(history.json()["items"]) == 10
+    assert all("content" not in item for item in history.json()["items"])
+    assert all("generation_request" not in item for item in history.json()["items"])
 
 
 def test_managed_project_uses_generic_runtime_profile(isolated_projects) -> None:
@@ -426,6 +552,14 @@ def test_soft_delete_is_confirmed_and_does_not_affect_other_project(
         headers=_project_headers("keep_me"),
         json={"title": "保留章节", "content": "必须保留", "chapter_order": 1},
     )
+    deleted_task = task_manager.create(
+        TaskType.GENERATION,
+        project_id="delete_me",
+    )
+    kept_task = task_manager.create(
+        TaskType.GENERATION,
+        project_id="keep_me",
+    )
 
     rejected = client.delete(
         "/api/projects/delete_me", params={"confirm_project_id": "wrong"}
@@ -439,6 +573,9 @@ def test_soft_delete_is_confirmed_and_does_not_affect_other_project(
     assert Path(deleted.json()["trash_path"]).is_dir()
     assert client.get("/api/projects/delete_me").status_code == 404
     assert client.get("/api/projects/keep_me").status_code == 200
+    assert task_manager.get(deleted_task.task_id, project_id="delete_me") is None
+    assert task_manager.get(kept_task.task_id, project_id="keep_me") is not None
+    assert list((task_manager.storage_root / ".trash").glob("delete_me.*"))
     chapters = client.get(
         "/api/official-chapters", headers=_project_headers("keep_me")
     ).json()
@@ -878,3 +1015,16 @@ def test_phase4_original_creation_flow_uses_only_temporary_data_and_mock_models(
     assert summary["recommended_step"] == "generate"
     assert summary["recent_official_chapters"][0]["chapter_id"] == official["chapter_id"]
     assert project_store.root == isolated_projects["root"] / "projects"
+
+    clear_project_runtime(project_id)
+    reloaded_official = client.get(
+        f"/api/official-chapters/{official['chapter_id']}",
+        headers=headers,
+    )
+    assert reloaded_official.status_code == 200, reloaded_official.text
+    assert reloaded_official.json()["content"] == revised_text
+    restored_tasks = client.get("/api/tasks?limit=200", headers=headers).json()
+    restored_ids = {item["task_id"] for item in restored_tasks}
+    assert planning.json()["task_id"] in restored_ids
+    assert generation.json()["task_id"] in restored_ids
+    assert review.json()["task_id"] in restored_ids

@@ -104,7 +104,7 @@ function recommendedDestination(step?: string): AppPage {
 }
 
 function taskStatusText(status: ProjectSummary['recent_tasks'][number]['status']): string {
-  return ({ pending: '等待', running: '执行中', success: '完成', partial_success: '部分完成', failed: '失败', cancelled: '已取消' })[status];
+  return ({ pending: '等待', running: '执行中', success: '完成', partial_success: '部分完成', failed: '失败', cancelled: '已取消', interrupted: '已中断' })[status];
 }
 
 function formatNum(value: number): string { return value >= 10000 ? `${(value / 10000).toFixed(1)} 万` : value.toLocaleString(); }

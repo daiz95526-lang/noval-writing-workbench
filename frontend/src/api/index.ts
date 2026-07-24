@@ -20,17 +20,43 @@ function projectHeaders(): Record<string, string> {
   return projectId ? { 'X-Project-ID': projectId } : {};
 }
 
-export type ApiErrorKind = 'not_found' | 'http';
+export type ApiErrorKind = 'not_found' | 'timeout' | 'validation' | 'http';
+
+export interface ApiErrorEnvelope {
+  error_code: string;
+  message: string;
+  details: Record<string, unknown>;
+  request_id: string;
+  retryable: boolean;
+}
 
 export class ApiError extends Error {
   readonly kind: ApiErrorKind;
   readonly status: number;
+  readonly errorCode: string;
+  readonly requestId: string;
+  readonly retryable: boolean;
+  readonly details: Record<string, unknown>;
 
-  constructor(message: string, status: number) {
+  constructor(
+    message: string,
+    status: number,
+    metadata: Partial<ApiErrorEnvelope> = {},
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
-    this.kind = status === 404 ? 'not_found' : 'http';
+    this.errorCode = metadata.error_code || 'HTTP_ERROR';
+    this.requestId = metadata.request_id || '';
+    this.retryable = Boolean(metadata.retryable);
+    this.details = metadata.details || {};
+    this.kind = status === 404
+      ? 'not_found'
+      : status === 408 || status === 504
+        ? 'timeout'
+        : status === 422
+          ? 'validation'
+          : 'http';
   }
 }
 
@@ -62,19 +88,24 @@ async function request<T>(
     if (!res.ok) {
       const text = await res.text();
       let message = text || res.statusText;
+      let metadata: Partial<ApiErrorEnvelope> = {};
       try {
-        const parsed = JSON.parse(text) as { detail?: string };
-        message = parsed.detail || message;
+        const parsed = JSON.parse(text) as Partial<ApiErrorEnvelope> & { detail?: string };
+        message = parsed.message || parsed.detail || message;
+        metadata = parsed;
       } catch {
         // Keep the plain-text response.
       }
-      throw new ApiError(message, res.status);
+      throw new ApiError(message, res.status, metadata);
     }
     if (res.status === 204) return undefined as T;
     return res.json() as Promise<T>;
   } catch (e: unknown) {
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error('请求超时，请检查后端或模型 API。', { cause: e });
+      throw new ApiError('请求超时，请检查后端或模型 API。', 408, {
+        error_code: 'CLIENT_TIMEOUT',
+        retryable: true,
+      });
     }
     if (e instanceof TypeError) {
       throw new Error(`无法连接后端：${e.message}`, { cause: e });
@@ -306,15 +337,24 @@ export function getTaskStatus(taskId: string) { return request<TaskStatus>(`/ana
 // ── Long-running tasks ──
 
 export type LongTaskType = 'style_analysis' | 'knowledge_build' | 'generation' | 'revision' | 'book_plan' | 'chapter_review' | 'chapter_repair';
-export type LongTaskState = 'pending' | 'running' | 'success' | 'partial_success' | 'failed' | 'cancelled';
+export type LongTaskState =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'partial_success'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted';
 
 export interface TaskError {
   type: string;
   message: string;
+  error_code: string;
   http_status: number | null;
   is_timeout: boolean;
   is_api_key_error: boolean;
   is_json_parse_error: boolean;
+  retryable: boolean;
 }
 
 export interface LongTask {
@@ -342,6 +382,11 @@ export interface LongTask {
   partial_word_count: number;
   draft_id: string;
   can_accept: boolean;
+  timeout_seconds: number;
+  deadline_at: string | null;
+  attempt: number;
+  retry_of: string;
+  retry_available: boolean;
 }
 
 export function listTasks(limit = 50) {
@@ -352,6 +397,9 @@ export function getLongTask(taskId: string) {
 }
 export function cancelLongTask(taskId: string) {
   return request<LongTask>(`/tasks/${taskId}/cancel`, { method: 'POST' });
+}
+export function retryLongTask(taskId: string) {
+  return request<LongTask>(`/tasks/${taskId}/retry`, { method: 'POST' });
 }
 export function startStyleAnalysisTask(chapterId: string) {
   return request<LongTask>('/tasks/style-analysis/start', {
@@ -634,6 +682,11 @@ export interface TempGeneration {
   updated_at: string;
 }
 
+export type TempGenerationSummary = Omit<
+  TempGeneration,
+  'content' | 'generation_request'
+>;
+
 export interface OfficialChapter {
   chapter_id: string;
   order: number;
@@ -650,6 +703,19 @@ export interface OfficialChapter {
   revision_count: number;
   created_at: string;
   updated_at: string;
+}
+
+export type OfficialChapterSummary = Omit<
+  OfficialChapter,
+  'content' | 'chapter_plan_snapshot'
+>;
+
+export interface Page<T> {
+  items: T[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
 }
 
 export interface WritingProjectManifest {
@@ -945,8 +1011,11 @@ export function applyBookPlanToChapterPlans() {
 export function getWritingProject() {
   return request<WritingProjectManifest>('/writing-project');
 }
-export function listTempGenerations() {
-  return request<TempGeneration[]>('/temp-generations');
+export async function listTempGenerations(offset = 0, limit = 200) {
+  const page = await request<Page<TempGenerationSummary>>(
+    `/temp-generations/page?offset=${offset}&limit=${limit}`,
+  );
+  return page.items;
 }
 export function getTempGeneration(id: string) {
   return request<TempGeneration>(`/temp-generations/${id}`);
@@ -975,8 +1044,11 @@ export function saveTempGeneration(value: {
     body: JSON.stringify(value),
   });
 }
-export function listOfficialChapters() {
-  return request<OfficialChapter[]>('/official-chapters');
+export async function listOfficialChapters(offset = 0, limit = 200) {
+  const page = await request<Page<OfficialChapterSummary>>(
+    `/official-chapters/page?offset=${offset}&limit=${limit}`,
+  );
+  return page.items;
 }
 export function getOfficialChapter(id: string) {
   return request<OfficialChapter>(`/official-chapters/${id}`);
