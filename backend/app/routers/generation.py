@@ -88,6 +88,7 @@ async def generate(request: GenerationRequest) -> GenerationResult:
     chapter = _corpus_store[request.start_chapter_id]
     draft_content = ""
     previous_draft_content = ""
+    previous_plan_status = "planned"
     if request.draft_id:
         try:
             draft_content = draft_store.get_draft(request.draft_id).content
@@ -96,7 +97,8 @@ async def generate(request: GenerationRequest) -> GenerationResult:
     try:
         planning_context = planning_store.compact_context(request.plan_id)
         if request.plan_id:
-            planning_store.update_plan_status(request.plan_id, "drafting")
+            previous_plan_status = planning_store.get_plan(request.plan_id).status
+            planning_store.update_plan_status(request.plan_id, "generating")
             previous_draft_id = planning_store.previous_draft_id(request.plan_id)
             if previous_draft_id and previous_draft_id != request.draft_id:
                 previous_draft_content = draft_store.get_draft(
@@ -127,6 +129,8 @@ async def generate(request: GenerationRequest) -> GenerationResult:
             ending_callback=save_ending,
         )
     except GenerationServiceError as exc:
+        if request.plan_id:
+            planning_store.update_plan_status(request.plan_id, previous_plan_status)
         raise HTTPException(502, str(exc)) from exc
 
     result = GenerationResult(
@@ -151,14 +155,14 @@ async def generate(request: GenerationRequest) -> GenerationResult:
     result.generation_file_path = temp_record.file_path
     _generation_results[result.id] = result
     draft_store.save_generation(result.id, result.model_dump(mode="json"))
+    if request.plan_id:
+        planning_store.update_plan_status(request.plan_id, "draft_review")
     if request.append_to_draft and request.draft_id:
         appended = draft_store.append_to_draft(request.draft_id, result.content)
         result.accepted = True
         result.saved_draft_id = appended.draft_id
         result.saved_draft_path = appended.file_path
         result.save_status = "auto_saved"
-        if request.plan_id:
-            planning_store.update_plan_status(request.plan_id, "done")
         draft_store.save_generation(result.id, result.model_dump(mode="json"))
     return result
 

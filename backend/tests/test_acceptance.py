@@ -437,7 +437,7 @@ class AcceptanceTests(unittest.TestCase):
             )
             self.assertEqual(
                 planning_store.get_plan(first_plan["plan_id"]).status,
-                "done",
+                "draft_review",
             )
             self.assertTrue(draft_store.list_versions(first_plan["draft_id"]))
         finally:
@@ -1584,7 +1584,7 @@ class AcceptanceTests(unittest.TestCase):
             json=plan_payload,
         )
         self.assertEqual(updated.status_code, 200, updated.text)
-        self.assertEqual(updated.json()["status"], "drafting")
+        self.assertEqual(updated.json()["status"], "draft_review")
 
         duplicate = self.client.post(
             "/api/drafts",

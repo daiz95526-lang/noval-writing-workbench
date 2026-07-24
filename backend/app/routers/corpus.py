@@ -21,7 +21,11 @@ def _scan_processed():
     """从 processed/ 目录和元数据索引恢复章节数据"""
     from app.services.local_importer import load_meta_index
 
-    paths = get_project_paths()
+    try:
+        paths = get_project_paths()
+    except KeyError:
+        # A clean installation has no selected project until the user creates one.
+        return
     paths.processed.mkdir(parents=True, exist_ok=True)
 
     meta_index = load_meta_index()

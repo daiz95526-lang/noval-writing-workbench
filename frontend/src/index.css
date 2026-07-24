@@ -383,6 +383,29 @@ table {
 .quick-action__icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: var(--radius-md); background: var(--accent-soft); color: var(--accent-primary); }
 .quick-action strong, .quick-action small { display: block; }
 .quick-action small { margin-top: 2px; color: var(--text-muted); font-size: var(--font-xs); }
+.workflow-overview { display: grid; gap: var(--space-4); }
+.workflow-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); }
+.workflow-step { display: flex; min-width: 0; align-items: center; gap: 7px; border-top: 2px solid var(--border-strong); color: var(--text-muted); padding: 10px 2px 0; font-size: var(--font-sm); }
+.workflow-step--done { border-top-color: var(--success); color: var(--text-primary); }
+.workflow-recommendation { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); border: 1px solid var(--border-subtle); background: var(--background-primary); padding: var(--space-4); }
+.workflow-recommendation__label { color: var(--text-muted); font-size: var(--font-xs); }
+.workflow-recommendation strong, .workflow-recommendation small { display: block; }
+.workflow-recommendation small { margin-top: 3px; color: var(--text-secondary); }
+.creation-flow-overview { display: grid; gap: var(--space-3); }
+.creation-flow-context { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.creation-flow-context > div { min-width: 0; border-left: 2px solid var(--border-strong); padding-left: var(--space-3); }
+.creation-flow-context span, .creation-flow-context strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.creation-flow-context span { color: var(--text-muted); font-size: var(--font-xs); }
+.creation-flow-context strong { margin-top: 3px; font-size: var(--font-sm); }
+.creation-flow-steps { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.creation-flow-steps .workflow-step { align-items: baseline; }
+.creation-flow-steps .workflow-step > span { color: var(--text-muted); font-size: var(--font-xs); }
+.creation-flow-steps .workflow-step > strong { overflow: hidden; font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
+.status-list, .activity-list { display: grid; gap: 1px; border-top: 1px solid var(--border-subtle); }
+.status-row, .activity-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--border-subtle); padding: 10px 0; }
+.activity-row > span { display: grid; min-width: 0; flex: 1; }
+.activity-row strong, .activity-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-row small { color: var(--text-muted); font-size: var(--font-xs); }
 .table-scroll { width: 100%; overflow-x: auto; }
 .data-table { width: 100%; min-width: 660px; border-collapse: collapse; }
 .data-table th { border-bottom: 1px solid var(--border-strong); color: var(--text-muted); padding: 8px 10px; font-size: var(--font-xs); font-weight: 650; text-align: left; }
@@ -419,6 +442,8 @@ table {
   .app-nav__item { justify-content: center; }
   .app-sidebar__footer .ui-button { justify-content: center; }
   .responsive-two-column { grid-template-columns: 1fr; }
+  .workflow-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .creation-flow-context { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 680px) {
@@ -435,5 +460,7 @@ table {
   .app-main { padding: var(--space-4); }
   .app-task-indicator span { display: none; }
   .metric-grid, .project-grid { grid-template-columns: 1fr; }
+  .workflow-steps { grid-template-columns: 1fr; }
+  .workflow-recommendation { align-items: stretch; flex-direction: column; }
   .settings-row { grid-template-columns: 1fr; gap: 3px; }
 }

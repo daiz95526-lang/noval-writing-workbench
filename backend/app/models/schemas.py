@@ -430,6 +430,21 @@ class ProjectSummary(BaseModel):
     official_chapter_count: int = 0
     active_task_count: int = 0
     current_chapter_id: str | None = None
+    analysis_profile_count: int = 0
+    knowledge_ready: bool = False
+    book_plan_exists: bool = False
+    book_plan_accepted: bool = False
+    chapter_plans_complete: bool = False
+    chapter_plan_count: int = 0
+    planned_chapter_count: int = 0
+    quality_checked_count: int = 0
+    current_chapter_order: int | None = None
+    current_chapter_title: str = ""
+    current_chapter_status: str = ""
+    recent_tasks: list[dict] = Field(default_factory=list)
+    recent_official_chapters: list[dict] = Field(default_factory=list)
+    recommended_step: str = "import_corpus"
+    recommended_action: str = "导入语料"
 
 
 class ProjectDeleteResult(BaseModel):
@@ -662,14 +677,25 @@ class ChapterPlanInput(BaseModel):
     emotional_tone: str = Field(default="", max_length=4000)
     word_count_reason: str = Field(default="", max_length=4000)
     ending_hook: str = Field(default="", max_length=4000)
-    status: str = "planned"
+    status: str = "unplanned"
 
     @field_validator("status")
     @classmethod
     def validate_status(cls, value: str) -> str:
-        if value not in {"planned", "drafting", "done"}:
-            raise ValueError("章节规划状态必须是 planned、drafting 或 done")
-        return value
+        legacy = {"drafting": "draft_review", "done": "official"}
+        normalized = legacy.get(value, value)
+        allowed = {
+            "unplanned",
+            "planned",
+            "generating",
+            "draft_review",
+            "quality_checked",
+            "official",
+            "archived",
+        }
+        if normalized not in allowed:
+            raise ValueError("章节状态无效")
+        return normalized
 
 
 class ChapterPlan(ChapterPlanInput):

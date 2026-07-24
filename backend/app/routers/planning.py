@@ -121,17 +121,14 @@ async def update_book_plan(request: BookPlanUpdate) -> BookPlan:
 
 @router.post("/book-plan/accept")
 async def accept_book_plan() -> BookPlan:
-    from app.services.chapter_planner import book_plan_chapters_complete
-
     book_plan = writing_project_store.load_book_plan() or planning_store.get_book_plan()
     if book_plan is None:
         raise HTTPException(404, "尚未生成总体构想")
-    if not book_plan_chapters_complete(book_plan):
-        raise HTTPException(409, "章节规划未完成，不能接受总体构想或开始正文生成")
     accepted = writing_project_store.accept_book_plan(book_plan)
     planning_store.save_book_plan(accepted)
     planning_store.sync_outline_from_book_plan(accepted)
-    planning_store.apply_book_plan(accepted, draft_store)
+    if accepted.chapter_plans_complete:
+        planning_store.apply_book_plan(accepted, draft_store)
     return accepted
 
 
@@ -142,6 +139,8 @@ async def complete_chapter_plans(
     book_plan = writing_project_store.load_book_plan() or planning_store.get_book_plan()
     if book_plan is None:
         raise HTTPException(404, "尚未生成总体构想")
+    if not book_plan.accepted:
+        raise HTTPException(409, "请先审核并接受总体构想，再生成完整章节规划")
     task = task_manager.create(
         TaskType.BOOK_PLAN,
         {

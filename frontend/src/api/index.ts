@@ -113,6 +113,47 @@ export interface Project {
   migration_state: string;
 }
 
+export interface ProjectSummary {
+  project_id: string;
+  title: string;
+  status: ProjectStatus;
+  storage_mode: 'managed' | 'legacy';
+  corpus_chapter_count: number;
+  corpus_word_count: number;
+  temp_generation_count: number;
+  official_chapter_count: number;
+  active_task_count: number;
+  current_chapter_id: string | null;
+  analysis_profile_count: number;
+  knowledge_ready: boolean;
+  book_plan_exists: boolean;
+  book_plan_accepted: boolean;
+  chapter_plans_complete: boolean;
+  chapter_plan_count: number;
+  planned_chapter_count: number;
+  quality_checked_count: number;
+  current_chapter_order: number | null;
+  current_chapter_title: string;
+  current_chapter_status: ChapterWorkflowStatus | '';
+  recent_tasks: Array<{
+    task_id: string;
+    title: string;
+    status: LongTaskState;
+    progress: number;
+    stage: string;
+    updated_at: string;
+  }>;
+  recent_official_chapters: Array<{
+    chapter_id: string;
+    order: number;
+    title: string;
+    word_count: number;
+    updated_at: string;
+  }>;
+  recommended_step: string;
+  recommended_action: string;
+}
+
 export function listProjects() {
   return request<Project[]>('/projects', undefined, DEFAULT_TIMEOUT_MS, false);
 }
@@ -125,6 +166,15 @@ export function createProject(value: {
   return request<Project>(
     '/projects',
     { method: 'POST', body: JSON.stringify(value) },
+    DEFAULT_TIMEOUT_MS,
+    false,
+  );
+}
+
+export function getProjectSummary(projectId: string) {
+  return request<ProjectSummary>(
+    `/projects/${encodeURIComponent(projectId)}/summary`,
+    undefined,
     DEFAULT_TIMEOUT_MS,
     false,
   );
@@ -475,8 +525,17 @@ export interface ChapterPlanInput {
   emotional_tone: string;
   word_count_reason: string;
   ending_hook: string;
-  status: 'planned' | 'drafting' | 'done';
+  status: ChapterWorkflowStatus;
 }
+
+export type ChapterWorkflowStatus =
+  | 'unplanned'
+  | 'planned'
+  | 'generating'
+  | 'draft_review'
+  | 'quality_checked'
+  | 'official'
+  | 'archived';
 
 export interface ChapterPlan extends ChapterPlanInput {
   plan_id: string;

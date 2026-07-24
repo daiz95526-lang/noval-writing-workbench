@@ -48,7 +48,7 @@ import {
   type WritingProjectManifest,
 } from '../api';
 import TaskStatusPanel from '../components/TaskStatusPanel';
-import { Alert, Button, PageHeader, Tabs } from '../components/ui';
+import { Alert, Button, PageHeader, Panel, Tabs } from '../components/ui';
 
 type WorkspaceTab = 'plan' | 'chapter' | 'temp' | 'official';
 type GenerationAction = 'chapter_generation' | 'continuation' | 'regeneration';
@@ -64,6 +64,20 @@ interface StoredState {
   reviewTaskId: string;
   repairTaskId: string;
   selectedPlanId: string;
+  roughDirection: string;
+  targetScale: BookPlanGenerateRequest['target_scale'];
+  targetChapterCount: number;
+  planFeedback: string;
+  editorTitle: string;
+  editorContent: string;
+  editorGenerationId: string;
+  editorTempId: string;
+  editingOfficialId: string;
+  editorOfficialPath: string;
+  revisionFeedback: string;
+  revisionTarget: string;
+  revisionMode: RevisionMode;
+  targetWords: number;
 }
 
 function loadStoredState(storageKey: string): StoredState {
@@ -75,6 +89,20 @@ function loadStoredState(storageKey: string): StoredState {
     reviewTaskId: '',
     repairTaskId: '',
     selectedPlanId: '',
+    roughDirection: '',
+    targetScale: 'medium',
+    targetChapterCount: 18,
+    planFeedback: '',
+    editorTitle: '',
+    editorContent: '',
+    editorGenerationId: '',
+    editorTempId: '',
+    editingOfficialId: '',
+    editorOfficialPath: '',
+    revisionFeedback: '',
+    revisionTarget: '',
+    revisionMode: 'local_edit',
+    targetWords: 0,
   };
   try {
     const raw = localStorage.getItem(storageKey);
@@ -141,20 +169,20 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
   const [selectedOfficial, setSelectedOfficial] = useState<OfficialChapter | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState(stored.selectedPlanId);
 
-  const [roughDirection, setRoughDirection] = useState('');
-  const [targetScale, setTargetScale] = useState<BookPlanGenerateRequest['target_scale']>('medium');
-  const [targetChapterCount, setTargetChapterCount] = useState(18);
-  const [planFeedback, setPlanFeedback] = useState('');
+  const [roughDirection, setRoughDirection] = useState(stored.roughDirection);
+  const [targetScale, setTargetScale] = useState<BookPlanGenerateRequest['target_scale']>(stored.targetScale);
+  const [targetChapterCount, setTargetChapterCount] = useState(stored.targetChapterCount);
+  const [planFeedback, setPlanFeedback] = useState(stored.planFeedback);
 
-  const [editorTitle, setEditorTitle] = useState('');
-  const [editorContent, setEditorContent] = useState('');
-  const [editorGenerationId, setEditorGenerationId] = useState('');
-  const [editorTempId, setEditorTempId] = useState('');
-  const [editingOfficialId, setEditingOfficialId] = useState('');
-  const [editorOfficialPath, setEditorOfficialPath] = useState('');
-  const [revisionFeedback, setRevisionFeedback] = useState('');
-  const [revisionTarget, setRevisionTarget] = useState('');
-  const [revisionMode, setRevisionMode] = useState<RevisionMode>('local_edit');
+  const [editorTitle, setEditorTitle] = useState(stored.editorTitle);
+  const [editorContent, setEditorContent] = useState(stored.editorContent);
+  const [editorGenerationId, setEditorGenerationId] = useState(stored.editorGenerationId);
+  const [editorTempId, setEditorTempId] = useState(stored.editorTempId);
+  const [editingOfficialId, setEditingOfficialId] = useState(stored.editingOfficialId);
+  const [editorOfficialPath, setEditorOfficialPath] = useState(stored.editorOfficialPath);
+  const [revisionFeedback, setRevisionFeedback] = useState(stored.revisionFeedback);
+  const [revisionTarget, setRevisionTarget] = useState(stored.revisionTarget);
+  const [revisionMode, setRevisionMode] = useState<RevisionMode>(stored.revisionMode);
   const [completeness, setCompleteness] = useState<ChapterCompletenessResult | null>(null);
   const [aiReview, setAIReview] = useState<AIChapterReviewResult | null>(null);
   const [repairCandidate, setRepairCandidate] = useState<{
@@ -169,7 +197,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
     completeness: ChapterCompletenessResult | null;
     originalContent: string;
   } | null>(null);
-  const [targetWords, setTargetWords] = useState(0);
+  const [targetWords, setTargetWords] = useState(stored.targetWords);
   const [editingChapterPlan, setEditingChapterPlan] = useState(false);
   const editorContentRef = useRef('');
 
@@ -236,7 +264,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
         ? '总体构想已按要求修改，请重新审核。'
         : task.input_summary.operation === 'complete_chapter_plans'
           ? `完整章节规划已生成，共 ${nextPlan?.chapters.length || 0} 章。`
-          : '总体构想已生成，请先生成完整章节规划。');
+          : '总体构想已生成，请审核内容并明确接受。');
       void refreshWritingData();
     } else if (task.status === 'failed' || task.status === 'cancelled') {
       setBookPlanTaskId('');
@@ -472,15 +500,32 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify({
-      activeTab,
-      bookPlanTaskId,
-      generationTaskId,
-      revisionTaskId,
-      reviewTaskId,
-      repairTaskId,
-      selectedPlanId,
-    }));
+    const timer = window.setTimeout(() => {
+      localStorage.setItem(storageKey, JSON.stringify({
+        activeTab,
+        bookPlanTaskId,
+        generationTaskId,
+        revisionTaskId,
+        reviewTaskId,
+        repairTaskId,
+        selectedPlanId,
+        roughDirection,
+        targetScale,
+        targetChapterCount,
+        planFeedback,
+        editorTitle,
+        editorContent,
+        editorGenerationId,
+        editorTempId,
+        editingOfficialId,
+        editorOfficialPath,
+        revisionFeedback,
+        revisionTarget,
+        revisionMode,
+        targetWords,
+      } satisfies StoredState));
+    }, 250);
+    return () => window.clearTimeout(timer);
   }, [
     storageKey,
     activeTab,
@@ -490,6 +535,20 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
     reviewTaskId,
     repairTaskId,
     selectedPlanId,
+    roughDirection,
+    targetScale,
+    targetChapterCount,
+    planFeedback,
+    editorTitle,
+    editorContent,
+    editorGenerationId,
+    editorTempId,
+    editingOfficialId,
+    editorOfficialPath,
+    revisionFeedback,
+    revisionTarget,
+    revisionMode,
+    targetWords,
   ]);
 
   const orderedPlans = [...plans]
@@ -500,11 +559,11 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
     ))
     .sort((a, b) => a.order - b.order);
   const currentPlan = orderedPlans.find((item) => item.plan_id === selectedPlanId)
-    || orderedPlans.find((item) => item.status !== 'done')
+    || orderedPlans.find((item) => !['official', 'archived'].includes(item.status))
     || orderedPlans[0]
     || null;
   const nextPlan = currentPlan
-    ? orderedPlans.find((item) => item.order > currentPlan.order && item.status !== 'done')
+    ? orderedPlans.find((item) => item.order > currentPlan.order && !['official', 'archived'].includes(item.status))
       || orderedPlans.find((item) => item.order > currentPlan.order)
       || null
     : null;
@@ -513,6 +572,9 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
   const revisionActive = revisionTask?.status === 'pending' || revisionTask?.status === 'running';
   const reviewActive = reviewTask?.status === 'pending' || reviewTask?.status === 'running';
   const repairActive = repairTask?.status === 'pending' || repairTask?.status === 'running';
+  const completePlanCount = bookPlan?.chapters.filter(isBookPlanChapterComplete).length || 0;
+  const activeTask = [bookPlanTask, generationTask, revisionTask, reviewTask, repairTask]
+    .find((task) => task && ['pending', 'running'].includes(task.status));
   const completenessIssues = completeness
     ? uniqueCompletenessIssues([
       ...(completeness.issues || []),
@@ -535,6 +597,29 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
     ...blockingCompletenessIssues.map((item) => item.message),
   ].filter(Boolean);
   const latestSourceChapter = chapters[chapters.length - 1];
+  const workflowSteps = [
+    { label: '总体构想', done: Boolean(bookPlan) },
+    { label: '审核接受', done: Boolean(bookPlan?.accepted) },
+    { label: '章节规划', done: Boolean(bookPlan?.chapter_plans_complete) },
+    { label: '草稿审核', done: Boolean(editorContent.trim()) },
+    { label: 'AI 质检', done: Boolean(aiReview) },
+    { label: '正式保存', done: Boolean(editingOfficialId) },
+  ];
+  const nextAction = !bookPlan
+    ? '生成总体构想'
+    : !bookPlan.accepted
+      ? '审核并接受总体构想'
+      : !bookPlan.chapter_plans_complete
+        ? '生成完整章节规划'
+        : !editorContent.trim()
+          ? '生成本章完整草稿'
+          : !aiReview
+            ? '人工审核、修改并运行 AI 深度质检'
+            : !editingOfficialId
+              ? '确认保存正式章节'
+              : nextPlan
+                ? `进入第 ${nextPlan.order} 章`
+                : '版本与导出';
 
   const startBookPlan = async () => {
     if (!latestSourceChapter) return setError('语料库中没有可用章节');
@@ -589,13 +674,13 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
       const accepted = await acceptBookPlan();
       setBookPlan(accepted);
       await refreshWritingData();
-      setActiveTab('chapter');
-      setMessage('总体构想已接受。章节生成现已解锁。');
+      setMessage('总体构想已接受。下一步请生成并审核完整章节规划。');
     });
   };
 
   const startCompleteChapterPlans = async () => {
     if (!bookPlan) return setError('请先生成总体构想');
+    if (!bookPlan.accepted) return setError('请先审核并接受总体构想');
     await runAction('complete-plans', async () => {
       setBookPlanTask(null);
       const task = await completeChapterPlans();
@@ -1008,6 +1093,17 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
         {notice && <Alert tone="info">{notice}</Alert>}
       </div>
 
+      {initialTab !== 'official' && <Panel className="workflow-overview creation-flow-overview">
+        <div className="creation-flow-context">
+          <div><span>当前步骤</span><strong>{nextAction}</strong></div>
+          <div><span>当前章节</span><strong>{currentPlan ? `第 ${currentPlan.order} 章 · ${currentPlan.title}` : '尚未选择'}</strong></div>
+          <div><span>当前任务</span><strong>{activeTask ? activeTask.user_visible_title || activeTask.stage : '无运行中任务'}</strong></div>
+        </div>
+        <div className="workflow-steps creation-flow-steps" aria-label="核心创作流程">
+          {workflowSteps.map((step, index) => <div className={`workflow-step${step.done ? ' workflow-step--done' : ''}`} key={step.label}><span>{step.done ? '完成' : index + 1}</span><strong>{step.label}</strong></div>)}
+        </div>
+      </Panel>}
+
       <Tabs label="创作流程" value={activeTab} onChange={setActiveTab} items={[
         { key: 'plan', label: '1 总体构想' },
         { key: 'chapter', label: '2 章节生成' },
@@ -1100,22 +1196,24 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
               <div>
                 <h3 style={{ ...headingStyle, marginBottom: 2 }}>总体构想审核</h3>
                   <span style={{ color: bookPlan?.accepted ? 'var(--success)' : 'var(--warning)', fontSize: 12 }}>
-                  {bookPlan?.accepted ? '已接受，可生成章节' : bookPlan ? '待审核' : '尚未生成'}
+                  {bookPlan?.accepted ? '已接受，等待完整章节规划' : bookPlan ? '待审核' : '尚未生成'}
                 </span>
               </div>
               <div style={buttonRowStyle}>
                 <PrimaryButton busy={busy === 'save-plan'} disabled={!bookPlan || Boolean(busy)} onClick={() => { void saveCurrentBookPlan(); }}>保存构想</PrimaryButton>
-                <PrimaryButton busy={busy === 'complete-plans' || bookPlanActive} disabled={!bookPlan || Boolean(busy) || bookPlanActive} onClick={() => { void startCompleteChapterPlans(); }}>
+                <PrimaryButton busy={busy === 'accept-plan'} disabled={!bookPlan || Boolean(busy) || Boolean(bookPlan?.accepted)} onClick={() => { void acceptCurrentBookPlan(); }}>接受总体构想</PrimaryButton>
+                <PrimaryButton busy={busy === 'complete-plans' || bookPlanActive} disabled={!bookPlan?.accepted || Boolean(busy) || bookPlanActive || Boolean(bookPlan?.chapter_plans_complete)} onClick={() => { void startCompleteChapterPlans(); }}>
                   生成完整章节规划
                 </PrimaryButton>
-                <PrimaryButton busy={busy === 'accept-plan'} disabled={!bookPlan || Boolean(busy) || Boolean(bookPlan?.accepted) || !bookPlan?.chapter_plans_complete} onClick={() => { void acceptCurrentBookPlan(); }}>接受总体构想</PrimaryButton>
               </div>
             </div>
             {bookPlan && (
-              <div style={{ ...pathBoxStyle, color: bookPlan.chapter_plans_complete ? 'var(--success)' : 'var(--danger)' }}>
+              <div style={{ ...pathBoxStyle, color: bookPlan.chapter_plans_complete ? 'var(--success)' : 'var(--warning)' }}>
                 {bookPlan.chapter_plans_complete
-                  ? `章节规划完整：${bookPlan.chapters.length}/${bookPlan.target_chapter_count} 章，可以接受并生成正文。`
-                  : `章节规划未完成：请先点击“生成完整章节规划”，完成前不能生成正式正文。`}
+                  ? `章节规划完整：${completePlanCount}/${bookPlan.target_chapter_count} 章，可以进入章节生成。`
+                  : !bookPlan.accepted
+                    ? `规划完整度：${completePlanCount}/${bookPlan.target_chapter_count} 章。请先审核并接受总体构想。`
+                    : `规划完整度：${completePlanCount}/${bookPlan.target_chapter_count} 章。请生成完整章节规划，完成前不会开放正式正文生成。`}
               </div>
             )}
             {!bookPlan ? <p style={emptyStyle}>生成总体构想后，完整方案会显示在这里。</p> : (
@@ -1213,10 +1311,14 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
                     {' · '}{plan.target_words} 字
                     {' · '}{generationActive && currentPlan?.plan_id === plan.plan_id
                       ? '生成中'
-                      : plan.status === 'done'
+                      : plan.status === 'official'
                         ? '已正式保存'
-                        : plan.status === 'drafting'
+                        : plan.status === 'draft_review'
                           ? '草稿待审核'
+                          : plan.status === 'quality_checked'
+                            ? '质检完成'
+                            : plan.status === 'generating'
+                              ? '生成中'
                           : '未生成'}
                   </span>
                 </button>
@@ -1250,7 +1352,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
               <PrimaryButton busy={busy === 'generate' || generationActive} disabled={Boolean(busy) || generationActive || !bookPlan?.accepted || !bookPlan?.chapter_plans_complete || !currentPlan} onClick={() => { void startChapter('chapter_generation'); }}>
                 生成本章完整草稿
               </PrimaryButton>
-              <PrimaryButton busy={busy === 'generate' || generationActive} disabled={Boolean(busy) || generationActive || !currentPlan} onClick={() => { void startChapter('regeneration'); }}>
+              <PrimaryButton busy={busy === 'generate' || generationActive} disabled={Boolean(busy) || generationActive || !bookPlan?.accepted || !bookPlan?.chapter_plans_complete || !currentPlan} onClick={() => { void startChapter('regeneration'); }}>
                 重新生成本章
               </PrimaryButton>
               <PrimaryButton busy={false} disabled={Boolean(busy) || !currentPlan} onClick={() => setEditingChapterPlan((value) => !value)}>
@@ -1260,12 +1362,16 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
             <details style={{ marginTop: 10 }}>
               <summary style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12 }}>高级选项</summary>
               <div style={{ marginTop: 8 }}>
-                <PrimaryButton busy={busy === 'generate' || generationActive} disabled={Boolean(busy) || generationActive || !editorContent.trim() || !currentPlan} onClick={() => { void startChapter('continuation'); }}>
+                <PrimaryButton busy={busy === 'generate' || generationActive} disabled={Boolean(busy) || generationActive || !bookPlan?.accepted || !bookPlan?.chapter_plans_complete || !editorContent.trim() || !currentPlan} onClick={() => { void startChapter('continuation'); }}>
                   继续追加一段
                 </PrimaryButton>
               </div>
             </details>
-              {!bookPlan?.chapter_plans_complete && <p style={{ ...helpStyle, color: 'var(--danger)' }}>按钮不可用：章节规划未完成，请先在“总体构想”页生成完整章节规划。</p>}
+              {!bookPlan?.accepted
+                ? <p style={{ ...helpStyle, color: 'var(--warning)' }}>按钮不可用：请先在“总体构想”页审核并接受总体构想。</p>
+                : !bookPlan.chapter_plans_complete
+                  ? <p style={{ ...helpStyle, color: 'var(--warning)' }}>按钮不可用：章节规划未完成，请先在“总体构想”页生成完整章节规划。</p>
+                  : null}
             {editingChapterPlan && currentPlan && (
               <div className="bg-panel-alt" style={{ padding: 12, marginTop: 12 }}>
                 <Field label="本章摘要">
@@ -1476,6 +1582,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
                   规则检查{repairCandidate.completeness?.passed ? '通过' : '仍有问题'}。
                   原文仍保留在编辑器和原临时记录中。
                 </p>
+                <div style={pathBoxStyle}>状态：AI 修复候选 · 项目：{PROJECT_ROOT} · 章节：{currentPlan ? `第 ${currentPlan.order} 章` : '未绑定'}<br />位置：{repairCandidate.temp?.file_path || '当前任务结果'} · 下一步：审核后接受或保留原文</div>
                 <details>
                   <summary style={{ cursor: 'pointer' }}>预览修复版正文</summary>
                   <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 360, overflowY: 'auto', lineHeight: 1.7 }}>
@@ -1538,6 +1645,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
                     修改后：{revisionCandidate.result.word_count} 字；
                     保留比例：{Math.round(revisionCandidate.result.revision_change_ratio * 100)}%
                   </div>
+                  <div style={{ ...pathBoxStyle, marginTop: 8 }}>状态：修改候选，尚未替换 · 项目：{PROJECT_ROOT} · 章节：{currentPlan ? `第 ${currentPlan.order} 章` : '未绑定'}<br />位置：{revisionCandidate.temp?.file_path || '当前任务结果'} · 下一步：对比后接受、放弃或保存为新版本</div>
                   {(revisionCandidate.result.warning || revisionCandidate.result.revision_requires_confirmation) && (
                 <div style={{ color: revisionCandidate.result.revision_failed ? 'var(--danger)' : 'var(--warning)', marginTop: 7 }}>
                       {revisionCandidate.result.warning || '修改结果明显短于原文，请人工复核后再接受。'}
@@ -1602,7 +1710,8 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
                       {record.chapter_order ? `第 ${record.chapter_order} 章 · ` : ''}{record.chapter_title || '未命名记录'}<br />
                       <span style={subtleStyle}>
                         {recordTypeText(record.record_type)} · {record.word_count} 字 · {new Date(record.created_at).toLocaleString('zh-CN')}<br />
-                        {record.accepted ? '已接受' : '未接受'} · {record.saved_official ? `已保存正式章 ${record.official_chapter_id}` : '尚未保存为正式章节'}
+                        状态：{record.accepted ? '已接受' : '临时'} · 项目：{PROJECT_ROOT} · {record.saved_official ? `已保存正式章 ${record.official_chapter_id}` : '尚未保存为正式章节'}<br />
+                        位置：{record.file_path} · 下一步：{record.saved_official ? '查看正式章节' : record.record_type === 'book_plan' ? '查看构想' : '继续编辑或删除'}
                       </span>
                     </div>
                     <div style={buttonRowStyle}>
@@ -1655,6 +1764,7 @@ export default function Generator({ initialTab }: { initialTab?: WorkspaceTab })
                   }} style={listTitleButtonStyle}>
                     第 {chapter.order} 章：{chapter.title}<br />
                     <span style={subtleStyle}>{chapter.word_count} 字 · {new Date(chapter.updated_at).toLocaleString('zh-CN')}</span>
+                    <br /><span style={subtleStyle}>状态：正式 · 项目：{PROJECT_ROOT} · 位置：{chapter.file_path} · 下一步：修改、导出或进入下一章</span>
                   </button>
                   <div style={buttonRowStyle}>
                     <button onClick={() => { void openOfficialInEditor(chapter); }}>修改此章</button>
@@ -1742,8 +1852,30 @@ function splitLines(value: string): string[] {
   return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
 }
 
+function isBookPlanChapterComplete(chapter: BookPlan['chapters'][number]): boolean {
+  return Boolean(
+    chapter.title.trim()
+    && chapter.chapter_summary.trim()
+    && chapter.chapter_goal.trim()
+    && chapter.previous_bridge.trim()
+    && chapter.next_bridge.trim()
+    && chapter.plot_beats.length > 0
+    && chapter.chapter_function.length > 0
+    && chapter.target_words > 0
+  );
+}
+
 function statusText(status: ChapterPlan['status']): string {
-  return status === 'done' ? '已完成' : status === 'drafting' ? '写作中' : '待生成';
+  const labels: Record<ChapterPlan['status'], string> = {
+    unplanned: '未规划',
+    planned: '已规划',
+    generating: '生成中',
+    draft_review: '草稿待审核',
+    quality_checked: '质检完成',
+    official: '正式章节',
+    archived: '已归档',
+  };
+  return labels[status];
 }
 
 function recordTypeText(value: string): string {

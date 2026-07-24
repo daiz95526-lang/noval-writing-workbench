@@ -227,7 +227,7 @@ async def save_official_chapter(
         raise HTTPException(409, str(exc)) from exc
     if request.source_plan_id:
         try:
-            planning_store.update_plan_status(request.source_plan_id, "done")
+            planning_store.update_plan_status(request.source_plan_id, "official")
         except KeyError:
             pass
     return chapter
@@ -500,12 +500,14 @@ async def _run_ai_chapter_review(
             "completeness_check": rule_check.model_dump(mode="json"),
         }
         if review.report_format == "text" or review.parse_warning:
+            planning_store.update_plan_status(request.plan_id, "quality_checked")
             task_manager.partial_succeed(
                 task_id,
                 result,
                 "AI 深度质检完成，但报告为非结构化文本",
             )
         else:
+            planning_store.update_plan_status(request.plan_id, "quality_checked")
             task_manager.succeed(
                 task_id,
                 result,

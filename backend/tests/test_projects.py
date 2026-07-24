@@ -3,13 +3,22 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
-from app.models.schemas import TaskType
+from app.models.schemas import (
+    AIChapterReviewResult,
+    AnalysisDimension,
+    BookPlan,
+    BookPlanChapter,
+    DimensionResult,
+    PlotBeatReview,
+    TaskType,
+)
 from app.routers.analysis import _style_profiles
 from app.routers.generation import _generation_results
 from app.services.file_ops import safe_child
@@ -364,6 +373,48 @@ def test_managed_project_uses_generic_runtime_profile(isolated_projects) -> None
     assert legacy_chapters[0].volume_display_name == "龙族 I：火之晨曦"
 
 
+def test_empty_data_root_can_start_before_first_project_is_created(
+    isolated_projects,
+) -> None:
+    from app.routers.corpus import _scan_processed
+
+    isolated_projects["legacy_source"].mkdir(parents=True)
+    isolated_projects["legacy_processed"].mkdir(parents=True)
+    isolated_projects["legacy_analysis"].mkdir(parents=True)
+    isolated_projects["legacy_style"].mkdir(parents=True)
+    isolated_projects["legacy_planning"].mkdir(parents=True)
+    isolated_projects["legacy_writing"].mkdir(parents=True)
+    isolated_projects["legacy_planning"].joinpath("chapter_plans.json").write_text(
+        "[]", encoding="utf-8"
+    )
+    isolated_projects["legacy_planning"].joinpath("outline.json").write_text(
+        json.dumps(
+            {
+                "title": "本地续写项目",
+                "premise": "",
+                "main_conflict": "",
+                "tone": "",
+                "ending_direction": "",
+                "continuity_notes": [],
+                "foreshadowing": [],
+                "character_arcs": [],
+                "prohibitions": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    isolated_projects["legacy_planning"].joinpath("manifest.json").write_text(
+        '{"chapters": []}', encoding="utf-8"
+    )
+    isolated_projects["legacy_writing"].joinpath("manifest.json").write_text(
+        "{}", encoding="utf-8"
+    )
+    with use_project(settings.project_id):
+        _scan_processed()
+    assert project_store.list_projects() == []
+
+
 def test_soft_delete_is_confirmed_and_does_not_affect_other_project(
     isolated_projects,
 ) -> None:
@@ -521,3 +572,309 @@ def test_failed_legacy_migration_is_removed_from_active_projects(
     assert list(settings.projects_dir.glob(".migration_backups/*.zip"))
     assert client.get("/api/projects/legacytest").status_code == 200
     assert hashlib.sha256(source_file.read_bytes()).hexdigest() == source_hash
+
+
+def test_phase4_original_creation_flow_uses_only_temporary_data_and_mock_models(
+    isolated_projects,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = TestClient(app)
+    project_id = "phase4_original"
+    project = _create_project(client, project_id, "原创闭环验收项目")
+    headers = _project_headers(project_id)
+    layout = project_store.layout(project_id)
+    assert str(layout.root).startswith(str(isolated_projects["root"]))
+
+    layout.corpus_source.mkdir(parents=True, exist_ok=True)
+    original_source = layout.corpus_source / "original_fixture.txt"
+    original_source.write_text(
+        "第一章 灯塔来信\n"
+        "清晨的港口没有船鸣。林澈收到一封来自废弃灯塔的手写信，"
+        "信中只画着潮汐刻度和一枚从未见过的印章。她决定在涨潮前查明来信者。\n"
+        "第二章 潮线之下\n"
+        "林澈沿防波堤找到被海水遮住的旧门，门后留下新的坐标。",
+        encoding="utf-8",
+    )
+    scan = client.post("/api/corpus/scan-local", headers=headers)
+    assert scan.status_code == 200, scan.text
+    chapters = client.get("/api/corpus/chapters", headers=headers).json()
+    assert chapters
+    anchor_id = chapters[-1]["chapter_id"]
+
+    analysis_result = [
+        DimensionResult(
+            dimension=AnalysisDimension.NARRATIVE_PERSPECTIVE,
+            summary="第三人称限知视角，叙事克制。",
+            details={"source": "mock"},
+        )
+    ]
+    with patch(
+        "app.services.style_analyzer.analyze_chapter",
+        new=AsyncMock(return_value=analysis_result),
+    ):
+        analysis = client.post(f"/api/analysis/analyze/{anchor_id}", headers=headers)
+    assert analysis.status_code == 200, analysis.text
+    analysis_task = client.get(
+        f"/api/analysis/tasks/{analysis.json()['task_id']}", headers=headers
+    ).json()
+    assert analysis_task["status"] == "completed"
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "mock-key-for-tests-only")
+    skeletons = [
+        BookPlanChapter(
+            order=index,
+            title=f"潮汐计划 {index}",
+            chapter_summary=f"林澈推进第 {index} 阶段调查。",
+            chapter_goal="推进灯塔来信的调查",
+            target_words=5000,
+        )
+        for index in range(1, 4)
+    ]
+    conceived = BookPlan(
+        project_id=project_id,
+        source_anchor_chapter_id=anchor_id,
+        target_scale="short",
+        target_chapter_count=3,
+        automation_level="chapter_by_chapter",
+        title="潮线之外",
+        premise="林澈追查灯塔来信并面对记忆与责任的选择。",
+        core_theme="记忆与责任",
+        focus_characters=["林澈"],
+        main_conflict="调查真相会危及港口居民",
+        tone="克制、清晰",
+        ending_direction="林澈公开证据并承担选择的后果",
+        chapters=skeletons,
+        chapter_plans_complete=False,
+        model_name="mock-model",
+    )
+    with patch(
+        "app.services.book_planner.conceive_book_plan",
+        new=AsyncMock(return_value=conceived),
+    ):
+        planning = client.post(
+            "/api/book-plan/generate",
+            headers=headers,
+            json={
+                "source_anchor_chapter_id": anchor_id,
+                "rough_direction": "",
+                "target_scale": "short",
+                "target_chapter_count": 3,
+                "automation_level": "chapter_by_chapter",
+                "auto_create_chapter_plans": False,
+            },
+        )
+    assert planning.status_code == 200, planning.text
+    planning_task = client.get(
+        f"/api/tasks/{planning.json()['task_id']}", headers=headers
+    ).json()
+    assert planning_task["status"] == "success"
+    assert planning_task["result"]["book_plan"]["accepted"] is False
+
+    blocked_completion = client.post(
+        "/api/book-plan/complete-chapter-plans", headers=headers
+    )
+    assert blocked_completion.status_code == 409
+    accepted_response = client.post("/api/book-plan/accept", headers=headers)
+    assert accepted_response.status_code == 200, accepted_response.text
+    accepted_plan = BookPlan.model_validate(accepted_response.json())
+
+    detailed_chapters = [
+        BookPlanChapter(
+            order=index,
+            title=f"潮汐计划 {index}",
+            chapter_summary=f"林澈根据第 {index} 组坐标推进调查并获得证据。",
+            chapter_goal="推进灯塔来信调查并明确本章选择的代价",
+            opening_state="承接上一章留下的潮汐坐标和未完成行动",
+            ending_state="林澈取得阶段性证据，同时发现新的风险入口",
+            previous_bridge="延续上一章结尾出现的坐标和行动方向",
+            next_bridge="将新证据中的下一处坐标交给后续章节追查",
+            plot_beats=["核对坐标", "遭遇阻力", "取得证据"],
+            chapter_function=["推进主线"],
+            characters=["林澈"],
+            conflict="林澈必须在保护居民和公开证据之间作出选择",
+            emotional_tone="克制而紧张",
+            word_count_reason="调查、冲突和选择需要完整展开并留下章节钩子",
+            ending_hook="证据中出现下一处潮汐坐标",
+            target_words=5000,
+        )
+        for index in range(1, 4)
+    ]
+    completed_plan = accepted_plan.model_copy(
+        update={"chapters": detailed_chapters, "chapter_plans_complete": True}
+    )
+    with patch(
+        "app.services.chapter_planner.complete_book_plan_chapters",
+        new=AsyncMock(return_value=(completed_plan, [])),
+    ):
+        completion = client.post(
+            "/api/book-plan/complete-chapter-plans", headers=headers
+        )
+    assert completion.status_code == 200, completion.text
+    completion_task = client.get(
+        f"/api/tasks/{completion.json()['task_id']}", headers=headers
+    ).json()
+    assert completion_task["status"] == "success"
+    plans = client.get("/api/chapter-plans", headers=headers).json()
+    assert len(plans) == 3
+    assert all(item["status"] == "planned" for item in plans)
+    first_plan, second_plan = plans[0], plans[1]
+
+    base = "林澈沿潮线核对坐标，避开巡逻后取得证据，并发现下一处入口。"
+    generated_text = (base * (8085 // len(base) + 1))[:8085] + "。"
+    assert len(generated_text) == 8086
+    with patch(
+        "app.services.generator.generate_chapter",
+        new=AsyncMock(return_value=(generated_text, "mock-system")),
+    ):
+        generation = client.post(
+            "/api/chapter-generation/full-chapter/start",
+            headers=headers,
+            json={
+                "start_chapter_id": anchor_id,
+                "source_anchor_chapter_id": anchor_id,
+                "plot_direction": "",
+                "target_word_count": 5000,
+                "mode": "chapter",
+                "draft_id": first_plan["draft_id"],
+                "plan_id": first_plan["plan_id"],
+                "append_to_draft": False,
+                "reference_chapter_ids": [],
+                "pov_character": "林澈",
+                "additional_instructions": "",
+                "generation_kind": "full_chapter",
+            },
+        )
+    assert generation.status_code == 200, generation.text
+    generation_task = client.get(
+        f"/api/tasks/{generation.json()['task_id']}", headers=headers
+    ).json()
+    assert generation_task["status"] == "success"
+    generated_result = generation_task["result"]["generation_result"]
+    assert generated_result["content"] == generated_text
+    assert generation_task["result"]["temp_generation"]["saved_official"] is False
+    assert client.get(
+        f"/api/chapter-plans/{first_plan['plan_id']}", headers=headers
+    ).json()["status"] == "draft_review"
+
+    revised_text = "林澈重新核对潮汐刻度。" + generated_text[12:]
+    with patch(
+        "app.services.generator.iterate_chapter",
+        new=AsyncMock(return_value=(revised_text, "mock-system")),
+    ):
+        revision = client.post(
+            "/api/tasks/revision/start",
+            headers=headers,
+            json={
+                "generation_id": generated_result["id"],
+                "feedback": "只修改开头动作，使目标更清楚",
+                "target_section": "开头",
+                "current_text": generated_text,
+                "revision_mode": "local_edit",
+            },
+        )
+    assert revision.status_code == 200, revision.text
+    revision_task = client.get(
+        f"/api/tasks/{revision.json()['task_id']}", headers=headers
+    ).json()
+    assert revision_task["status"] in {"success", "partial_success"}
+    assert revision_task["result"]["generation_result"]["content"] == revised_text
+    assert revision_task["result"]["original_text"] == generated_text
+    assert generated_text != revised_text
+
+    report = AIChapterReviewResult(
+        plan_id=first_plan["plan_id"],
+        generation_id=revision_task["result"]["generation_result"]["id"],
+        overall_pass=True,
+        score=88,
+        summary_alignment="正文覆盖调查和取得证据。",
+        summary_aligned=True,
+        plot_beats_coverage=[
+            PlotBeatReview(beat=beat, covered=True, evidence="正文已覆盖")
+            for beat in detailed_chapters[0].plot_beats
+        ],
+        ending_state_alignment="结尾取得阶段性证据。",
+        ending_state_aligned=True,
+        continuity_with_previous="承接潮汐坐标。",
+        continuity_previous_pass=True,
+        continuity_with_next="留下下一处入口。",
+        continuity_next_pass=True,
+        character_consistency="人物行为一致。",
+        character_consistent=True,
+        style_consistency="叙事风格一致。",
+        style_consistent=True,
+        need_repair=False,
+        model_name="mock-model",
+    )
+    with patch(
+        "app.services.chapter_reviewer.ChapterReviewService.review",
+        new=AsyncMock(return_value=report),
+    ):
+        review = client.post(
+            "/api/chapter-generation/ai-review/start",
+            headers=headers,
+            json={
+                "generation_id": report.generation_id,
+                "plan_id": first_plan["plan_id"],
+                "content": revised_text,
+            },
+        )
+    assert review.status_code == 200, review.text
+    review_task = client.get(
+        f"/api/tasks/{review.json()['task_id']}", headers=headers
+    ).json()
+    assert review_task["status"] == "success"
+    assert client.get(
+        f"/api/chapter-plans/{first_plan['plan_id']}", headers=headers
+    ).json()["status"] == "quality_checked"
+
+    check = client.post(
+        "/api/chapter-generation/check-completeness",
+        headers=headers,
+        json={"plan_id": first_plan["plan_id"], "content": revised_text},
+    )
+    assert check.status_code == 200, check.text
+    check_result = check.json()
+    assert check_result["can_save_official"] is True
+    assert check_result["blocking_errors"] == []
+    assert any(
+        item["code"] == "chapter_above_recommended"
+        for item in check_result["warnings"]
+    )
+    saved = client.post(
+        "/api/chapter-generation/save-official",
+        headers=headers,
+        json={
+            "title": first_plan["title"],
+            "content": revised_text,
+            "chapter_order": first_plan["order"],
+            "source_generation_id": report.generation_id,
+            "source_temp_id": revision_task["result"]["temp_generation"]["temp_id"],
+            "source_plan_id": first_plan["plan_id"],
+            "completeness_check": check_result,
+            "chapter_plan_snapshot": first_plan,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    official = saved.json()
+    assert official["saved_with_warnings"] is True
+    assert client.get(
+        f"/api/chapter-plans/{first_plan['plan_id']}", headers=headers
+    ).json()["status"] == "official"
+    assert client.get(
+        f"/api/chapter-plans/{second_plan['plan_id']}", headers=headers
+    ).json()["status"] == "planned"
+
+    exported = client.post(
+        f"/api/official-chapters/{official['chapter_id']}/export",
+        headers=headers,
+        json={"format": "txt"},
+    )
+    assert exported.status_code == 200, exported.text
+    assert revised_text.encode("utf-8") in exported.content
+    assert list((layout.writing / "exports").glob("*.txt"))
+    summary = client.get(f"/api/projects/{project_id}/summary").json()
+    assert summary["official_chapter_count"] == 1
+    assert summary["current_chapter_order"] == second_plan["order"]
+    assert summary["recommended_step"] == "generate"
+    assert summary["recent_official_chapters"][0]["chapter_id"] == official["chapter_id"]
+    assert project_store.root == isolated_projects["root"] / "projects"

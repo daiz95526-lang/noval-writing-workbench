@@ -192,7 +192,76 @@ class ProjectStore:
 
     def _legacy_exists(self) -> bool:
         paths = self.legacy_layout()
-        return any(path.exists() for path in paths.values())
+        if paths["index"].is_file():
+            return True
+
+        content_roots = (
+            paths["source"],
+            paths["processed"],
+            paths["analysis"],
+            paths["style"],
+        )
+        if any(
+            root.is_file()
+            or (
+                root.is_dir()
+                and next(
+                    (item for item in root.rglob("*") if item.is_file()),
+                    None,
+                )
+                is not None
+            )
+            for root in content_roots
+        ):
+            return True
+
+        planning = paths["planning"]
+        if planning.is_dir():
+            for path in planning.rglob("*"):
+                if not path.is_file():
+                    continue
+                if path.name not in {
+                    "chapter_plans.json",
+                    "outline.json",
+                    "manifest.json",
+                }:
+                    return True
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    return True
+                if path.name == "chapter_plans.json" and bool(payload):
+                    return True
+                if path.name == "manifest.json" and bool(
+                    isinstance(payload, dict) and payload.get("chapters")
+                ):
+                    return True
+                if path.name == "outline.json" and isinstance(payload, dict):
+                    outline_fields = (
+                        "premise",
+                        "main_conflict",
+                        "tone",
+                        "ending_direction",
+                        "continuity_notes",
+                        "foreshadowing",
+                        "character_arcs",
+                        "prohibitions",
+                    )
+                    if any(payload.get(field) for field in outline_fields):
+                        return True
+
+        writing = paths["writing"]
+        writing_content_roots = (
+            writing / "book_plan",
+            writing / "official_chapters",
+            writing / "temp_generations",
+            writing / "revisions",
+            writing / "exports",
+        )
+        return any(
+            root.is_dir() and next((item for item in root.rglob("*") if item.is_file()), None)
+            for root in writing_content_roots
+        )
 
     def _legacy_project(self) -> Project:
         return Project(

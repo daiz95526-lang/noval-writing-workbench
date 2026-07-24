@@ -354,6 +354,7 @@ async def _run_knowledge_build(
 
 
 async def _run_generation(task_id: str, request: GenerationRequest) -> None:
+    previous_plan_status = "planned"
     try:
         from app.routers import generation
         from app.routers.corpus import _corpus_store
@@ -384,7 +385,8 @@ async def _run_generation(task_id: str, request: GenerationRequest) -> None:
         planning_context = planning_store.compact_context(request.plan_id)
         plan = planning_store.get_plan(request.plan_id) if request.plan_id else None
         if request.plan_id:
-            planning_store.update_plan_status(request.plan_id, "drafting")
+            previous_plan_status = plan.status if plan else "planned"
+            planning_store.update_plan_status(request.plan_id, "generating")
             report(30, "正在读取章节规划", f"已加载章节规划 {request.plan_id}")
             previous_official = (
                 writing_project_store.get_official_chapter_by_order(plan.order - 1)
@@ -495,6 +497,8 @@ async def _run_generation(task_id: str, request: GenerationRequest) -> None:
         )
         result.generation_file_path = temp_record.file_path
         generation._generation_results[result.id] = result
+        if request.plan_id:
+            planning_store.update_plan_status(request.plan_id, "draft_review")
         draft_store.save_generation(
             result.id,
             result.model_dump(mode="json"),
@@ -510,7 +514,7 @@ async def _run_generation(task_id: str, request: GenerationRequest) -> None:
             result.saved_draft_path = appended_draft.file_path
             result.save_status = "auto_saved"
             if request.plan_id:
-                planning_store.update_plan_status(request.plan_id, "done")
+                planning_store.update_plan_status(request.plan_id, "draft_review")
             draft_store.save_generation(
                 result.id,
                 result.model_dump(mode="json"),
@@ -591,6 +595,11 @@ async def _run_generation(task_id: str, request: GenerationRequest) -> None:
                     "temp_generation": temp_record.model_dump(mode="json"),
                 },
             )
+        if request.plan_id:
+            planning_store.update_plan_status(
+                request.plan_id,
+                "draft_review" if task and task.partial_text.strip() else previous_plan_status,
+            )
         return
     except Exception as exc:
         partial_text = getattr(exc, "partial_text", "")
@@ -652,12 +661,16 @@ async def _run_generation(task_id: str, request: GenerationRequest) -> None:
                 "warning": result.warning,
             }
         if result_payload and result_payload.get("partial_word_count", 0) >= 300:
+            if request.plan_id:
+                planning_store.update_plan_status(request.plan_id, "draft_review")
             task_manager.partial_succeed(
                 task_id,
                 result_payload,
                 "生成未全部完成，但可用正文已保存为临时记录。",
             )
         else:
+            if request.plan_id:
+                planning_store.update_plan_status(request.plan_id, previous_plan_status)
             task_manager.fail(task_id, exc, result=result_payload or None)
 
 
@@ -798,6 +811,11 @@ async def _run_revision(task_id: str, request: IterateRequest) -> None:
         )
         result.generation_file_path = temp_record.file_path
         generation._generation_results[result.id] = result
+        if previous.request.plan_id:
+            planning_store.update_plan_status(
+                previous.request.plan_id,
+                "draft_review",
+            )
         draft_store.save_generation(result.id, result.model_dump(mode="json"))
         result_payload = {
             "generation_result": result.model_dump(mode="json"),
